@@ -5,6 +5,9 @@ const config: CapacitorConfig = {
   appName: 'Dairy Management System',
   webDir: 'build',
   bundledWebRuntime: false,
+  server:{
+    androidScheme: 'https'
+  },
   plugins: {
     SplashScreen: {
       launchShowDuration: 3000,
