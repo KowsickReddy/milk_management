@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Receipt, Calendar, Check, X, RefreshCw, ChevronDown, ChevronUp,
   Wallet, CreditCard, Banknote, TrendingUp, Clock, CheckCircle2,
+  Share2
 } from 'lucide-react';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
@@ -131,6 +132,11 @@ function BillCard({ bill, onPay }) {
     onPay(bill.id, bill.customer_id, balance, paymentMethod);
   };
 
+  const handleShareWhatsApp = () => {
+    const text = `*Milk Delivery Bill Summary*%0A---------------------------%0A*Customer:* ${bill.customer_name}%0A*Period:* ${getMonthName(bill.bill_month)} ${bill.bill_year}%0A*Quantity:* ${Number(bill.total_quantity).toFixed(2)} L%0A*Gross Bill:* ₹${grossAmount}%0A${creditUsed > 0 ? `*Credit Applied:* −₹${creditUsed}%0A` : ''}*Final Payable:* ₹${totalAmount}%0A*Status:* ${bill.paid ? '✅ FULLY PAID' : `⏳ PENDING: ₹${balance}`}%0A---------------------------%0A_Thank you for your business!_`;
+    window.open(`https://wa.me/91${bill.customer_phone || ''}?text=${text}`, '_blank');
+  };
+
   return (
     <Card className={cn(
       'glass-card p-5 animate-slide-up flex flex-col gap-4',
@@ -147,14 +153,21 @@ function BillCard({ bill, onPay }) {
             {getInitials(bill.customer_name)}
           </div>
           <div>
-            <h3 className="font-bold text-gray-900 text-sm">{bill.customer_name}</h3>
+            <h3 className="font-bold text-gray-900 text-sm">#{bill.customer_id} {bill.customer_name}</h3>
             <p className="text-xs text-gray-400 flex items-center gap-1">
               <Calendar className="w-3 h-3" />
               {getMonthName(bill.bill_month)} {bill.bill_year}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
+          <button 
+            onClick={handleShareWhatsApp}
+            className="p-2 rounded-xl bg-green-50 text-green-600 hover:bg-green-100 transition-all mr-1"
+            title="Share on WhatsApp"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
           {bill.paid
             ? <span className="badge badge-success flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Paid</span>
             : <span className="badge badge-warning flex items-center gap-1"><Clock className="w-3 h-3" /> Unpaid</span>
@@ -322,6 +335,7 @@ export default function Billing() {
   const [searchTerm, setSearchTerm]       = useState('');
   const [filterStatus, setFilterStatus]   = useState('all');
   const [generatedBill, setGeneratedBill] = useState(null);
+  const [isGeneratingBatch, setIsGeneratingBatch] = useState(false);
   const [billForm, setBillForm] = useState({
     customer_id: '',
     month: new Date().getMonth() + 1,
@@ -384,6 +398,24 @@ export default function Billing() {
     });
   };
 
+  const handleGenerateBatch = async () => {
+    if (!window.confirm(`Generate bills for ALL active customers for ${getMonthName(billForm.month)} ${billForm.year}?`)) return;
+    
+    setIsGeneratingBatch(true);
+    try {
+      const res = await api.bills.generateBatch({
+        month: Number(billForm.month),
+        year: Number(billForm.year),
+      });
+      toast.success(`Successfully processed ${res.processed} bills!`);
+      queryClient.invalidateQueries({ queryKey: ['bills'] });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setIsGeneratingBatch(false);
+    }
+  };
+
   const filteredBills = useMemo(() => {
     let result = [...bills];
     if (searchTerm) result = result.filter(b => b.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -409,18 +441,24 @@ export default function Billing() {
 
   return (
     <div className="pb-28">
-      {/* Sticky Header */}
-      <div className="bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 py-4 sticky top-0 z-30 flex justify-between items-center shadow-sm">
-        <div>
-          <h1 className="text-xl font-bold text-gradient">Billing & Payments</h1>
-          <p className="text-gray-400 text-xs mt-0.5">Manage invoices, installments, and credit</p>
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="pl-12 md:pl-0">
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Invoices</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Manage Payments & Dues</p>
+          </div>
+          <button 
+            onClick={() => refetch()} 
+            disabled={isFetching} 
+            className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
+          >
+            <RefreshCw className={cn('w-4.5 h-4.5', isFetching && 'animate-spin')} />
+          </button>
         </div>
-        <button onClick={() => refetch()} disabled={isFetching} className="btn btn-ghost p-2">
-          <RefreshCw className={cn('w-5 h-5 text-indigo-500', isFetching && 'animate-spin')} />
-        </button>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-5 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -439,9 +477,18 @@ export default function Billing() {
 
         {/* Generate Bill panel */}
         <Card className="glass-card p-5 space-y-4">
-          <div>
-            <h2 className="font-bold text-gray-900">Generate Bill</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Leave days are excluded. Wallet credit auto-applied.</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-bold text-gray-900">Generate Bills</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Leave days are excluded. Wallet credit auto-applied.</p>
+            </div>
+            <button 
+              onClick={handleGenerateBatch}
+              disabled={isGeneratingBatch}
+              className="btn btn-outline border-indigo-200 text-indigo-600 text-xs py-2 h-auto"
+            >
+              {isGeneratingBatch ? '⏳ Processing...' : '⚡ Generate All for Month'}
+            </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <Select
@@ -449,7 +496,7 @@ export default function Billing() {
               onChange={(e) => { setBillForm(p => ({ ...p, customer_id: e.target.value })); setGeneratedBill(null); }}
               options={[
                 { value: '', label: 'Select customer' },
-                ...customers.filter(c => c.status === 'active').map(c => ({ value: c.id, label: c.name })),
+                ...customers.filter(c => c.status === 'active').map(c => ({ value: c.id, label: `#${c.id} ${c.name} - ${c.phone}` })),
               ]}
             />
             <Select

@@ -28,9 +28,20 @@ async function createTables() {
       shift VARCHAR(20) DEFAULT 'morning',
       status VARCHAR(20) DEFAULT 'active',
       customer_type VARCHAR(20) DEFAULT 'regular',
+      route_area VARCHAR(100) DEFAULT 'Default',
       credit_balance DECIMAL(10,2) DEFAULT 0,
+      pin VARCHAR(10) DEFAULT '1234',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS complaints (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      customer_id INT NOT NULL,
+      subject VARCHAR(255),
+      message TEXT,
+      status VARCHAR(20) DEFAULT 'open',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     )`,
     `CREATE TABLE IF NOT EXISTS deliveries (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -116,8 +127,8 @@ async function createTables() {
       id INT AUTO_INCREMENT PRIMARY KEY,
       customer_id INT NOT NULL,
       start_date DATE NOT NULL,
-      end_date DATE NOT NULL,
-      reason VARCHAR(255),
+      end_date DATE,
+      reason TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     )`,
@@ -168,6 +179,37 @@ async function createTables() {
       alert_type VARCHAR(50) NOT NULL,
       message TEXT NOT NULL,
       is_read BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS login_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_type VARCHAR(20) NOT NULL,
+      user_id INT NOT NULL,
+      username VARCHAR(255) NOT NULL,
+      login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      ip_address VARCHAR(45)
+    )`,
+    `CREATE TABLE IF NOT EXISTS cattle (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tag_number VARCHAR(50) NOT NULL UNIQUE,
+      breed VARCHAR(100),
+      entry_date DATE NULL,
+      acquisition_cost DECIMAL(12,2) DEFAULT 0,
+      transport_cost DECIMAL(10,2) DEFAULT 0,
+      status ENUM('milking', 'dry', 'heifer', 'calf') DEFAULT 'milking',
+      is_in_calf BOOLEAN DEFAULT FALSE,
+      gestation_start_date DATE NULL,
+      last_calving_date DATE NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS feed_purchases (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      purchase_date DATE NOT NULL,
+      feed_type VARCHAR(100) NOT NULL,
+      bags_bought INT NOT NULL,
+      cost_per_bag DECIMAL(10,2) NOT NULL,
+      total_cost DECIMAL(12,2) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`
   ];

@@ -1,14 +1,20 @@
 // API Service Layer — Connects Frontend to Backend
+import { toast } from 'react-hot-toast';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 // ── Core fetch helper ──────────────────────────────────────────────────────
 async function apiCall(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
+  const token = localStorage.getItem('token');
 
   const config = {
     method: options.method || 'GET',
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: { 
+      'Content-Type': 'application/json', 
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+      ...options.headers 
+    },
     ...options,
   };
 
@@ -17,17 +23,32 @@ async function apiCall(endpoint, options = {}) {
   }
 
   const response = await fetch(url, config);
-  const contentType = response.headers.get('content-type');
+  
+  if (response.status === 401 && token) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '/'; 
+    return;
+  }
 
   let data;
-  if (contentType && contentType.includes('application/json')) {
-    data = await response.json();
-  } else {
-    const text = await response.text();
-    throw new Error(`Server returned non-JSON response (${response.status}): ${text.slice(0, 100)}`);
+  try {
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      data = { error: await response.text() };
+    }
+  } catch (e) {
+    data = { error: 'Failed to parse response' };
   }
 
   if (!response.ok) {
+    console.error('--- API ERROR LOG ---');
+    console.error('URL:', url);
+    console.error('Status:', response.status);
+    console.error('Response:', data);
+    toast.error(data?.error || `Server Error: ${response.status}`);
     throw new Error(data?.error || `API Error: ${response.status}`);
   }
 
@@ -41,6 +62,14 @@ export const customersAPI = {
   create:   (data)     => apiCall('/api/customers', { method: 'POST', body: data }),
   update:   (id, data) => apiCall(`/api/customers/${id}`, { method: 'PUT', body: data }),
   delete:   (id)       => apiCall(`/api/customers/${id}`, { method: 'DELETE' }),
+  updatePin:(id, pin)  => apiCall(`/api/customers/${id}/pin`, { method: 'PATCH', body: { pin } }),
+};
+
+// ── Admin ──────────────────────────────────────────────────────────────────
+export const adminAPI = {
+  getLoginLogs: () => apiCall('/api/admin/login-logs'),
+  getComplaints: () => apiCall('/api/admin/complaints'),
+  getAlerts: () => apiCall('/api/admin/alerts'),
 };
 
 // ── Deliveries ─────────────────────────────────────────────────────────────
@@ -63,6 +92,7 @@ export const billsAPI = {
   getById:   (id)          => apiCall(`/api/bills/${id}`),
   create:    (data)        => apiCall('/api/bills', { method: 'POST', body: data }),
   generate:  (data)        => apiCall('/api/bills/generate', { method: 'POST', body: data }),
+  generateBatch: (data)    => apiCall('/api/bills/generate-batch', { method: 'POST', body: data }),
   update:    (id, data)    => apiCall(`/api/bills/${id}`, { method: 'PUT', body: data }),
   delete:    (id)          => apiCall(`/api/bills/${id}`, { method: 'DELETE' }),
 };
@@ -86,6 +116,22 @@ export const analyticsAPI = {
   getDashboard: ()             => apiCall('/api/analytics/dashboard'),
   getEarnings:  (year, month)  => apiCall(`/api/analytics/earnings?year=${year}&month=${month}`),
   getStats:     ()             => apiCall('/api/stats'),
+  getFarmStats: ()             => apiCall('/api/analytics/farm'),
+};
+
+// ── Cattle Management ──────────────────────────────────────────────────────
+export const cattleAPI = {
+  getAll: ()     => apiCall('/api/cattle'),
+  create: (data) => apiCall('/api/cattle', { method: 'POST', body: data }),
+  update: (id, data) => apiCall(`/api/cattle/${id}`, { method: 'PUT', body: data }),
+  delete: (id)   => apiCall(`/api/cattle/${id}`, { method: 'DELETE' }),
+};
+
+// ── Feed Management ───────────────────────────────────────────────────────
+export const feedAPI = {
+  getAll: ()     => apiCall('/api/feed'),
+  create: (data) => apiCall('/api/feed', { method: 'POST', body: data }),
+  delete: (id)   => apiCall(`/api/feed/${id}`, { method: 'DELETE' }),
 };
 
 // ── Reports ────────────────────────────────────────────────────────────────
@@ -114,6 +160,9 @@ function toQuery(params) {
 
 const api = {
   customers:  customersAPI,
+  admin:      adminAPI,
+  cattle:     cattleAPI,
+  feed:       feedAPI,
   deliveries: deliveriesAPI,
   leave:      leaveAPI,
   bills:      billsAPI,

@@ -2,15 +2,49 @@ const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const morgan = require('morgan');
+const jwt = require('jsonwebtoken');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key-123';
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev'));
+
+// JWT Middleware
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return res.status(401).json({ error: 'Access denied. No token provided.' });
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return res.status(403).json({ error: 'Invalid or expired token.' });
+    req.user = user;
+    next();
+  });
+}
+
+// Telegram Notification Helper
+async function sendTelegramNotification(message) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId || token === 'your_bot_token_here') return;
+  
+  const url = `https://api.telegram.org/bot${token}/sendMessage`;
+  try {
+    await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' })
+    });
+  } catch (error) {
+    console.error('Telegram notification failed:', error);
+  }
+}
 
 // Database configuration
 const dbConfig = {
@@ -39,6 +73,22 @@ async function initDB() {
     
     // Create tables if not exist
     await createTables();
+
+    // Run Migrations
+    await migrateDeliverySchema();
+    await migrateBillingWalletSchema();
+    await migrateRouteAreaSchema();
+    await migrateFarmSchema();
+    
+    // Create default admin if not exists
+    const [admins] = await pool.query('SELECT * FROM users WHERE username = ?', ['admin']);
+    if (admins.length === 0) {
+      await pool.query(
+        'INSERT INTO users (username, pin, role, full_name) VALUES (?, ?, ?, ?)',
+        ['admin', '1234', 'admin', 'System Administrator']
+      );
+      console.log('Default admin created');
+    }
   } catch (error) {
     console.error('Database connection error:', error.message);
     console.log('Note: Make sure MySQL is running and database exists');
@@ -209,6 +259,7 @@ async function createTables() {
 
   await migrateDeliverySchema();
   await migrateBillingWalletSchema();
+  await migrateRouteAreaSchema();
   
   // Create default admin if not exists
   const [admins] = await pool.query('SELECT * FROM users WHERE username = ?', ['admin']);
@@ -300,8 +351,17 @@ async function migrateBillingWalletSchema() {
   `);
 }
 
+async function migrateRouteAreaSchema() {
+  const hasRouteArea = await columnExists('customers', 'route_area');
+  if (!hasRouteArea) {
+    await pool.query("ALTER TABLE customers ADD COLUMN route_area VARCHAR(100) DEFAULT 'Default' AFTER customer_type");
+  }
+}
+
 async function getDeliveriesWithLeaveOverlay({ date, customerId }) {
   const params = [];
+  
+  // Section 1: All records from the deliveries table (Delivered, Extra, or manual Leave markings)
   let query = `
     SELECT d.*,
       (d.status IN ('delivered', 'extra')) AS delivered,
@@ -309,24 +369,19 @@ async function getDeliveriesWithLeaveOverlay({ date, customerId }) {
       NULL AS leave_request_id,
       'delivery' AS source
     FROM deliveries d
-    WHERE d.is_deleted = FALSE
-      AND NOT EXISTS (
-        SELECT 1 FROM leave_requests lr
-        WHERE lr.customer_id = d.customer_id
-          AND d.date BETWEEN lr.start_date AND lr.end_date
-      )`;
+    WHERE d.is_deleted = FALSE`;
 
   if (date) {
     query += ' AND d.date = ?';
     params.push(date);
   }
-
   if (customerId) {
     query += ' AND d.customer_id = ?';
     params.push(customerId);
   }
 
   if (date) {
+    // Section 2: Overlay leave requests ONLY for customers who DON'T have an entry in Section 1
     query += `
       UNION ALL
       SELECT
@@ -350,9 +405,15 @@ async function getDeliveriesWithLeaveOverlay({ date, customerId }) {
         'leave_request' AS source
       FROM leave_requests lr
       JOIN customers c ON c.id = lr.customer_id
-      WHERE ? BETWEEN lr.start_date AND lr.end_date
-        AND c.status = 'active'`;
-    params.push(date, date);
+      WHERE ? >= lr.start_date AND (lr.end_date IS NULL OR ? <= lr.end_date)
+        AND c.status = 'active'
+        AND NOT EXISTS (
+          SELECT 1 FROM deliveries d2 
+          WHERE d2.customer_id = c.id 
+            AND d2.date = ? 
+            AND d2.is_deleted = FALSE
+        )`;
+    params.push(date, date, date, date, date);
 
     if (customerId) {
       query += ' AND c.id = ?';
@@ -389,7 +450,220 @@ app.post('/api/users/login', async (req, res) => {
     }
     const user = rows[0];
     await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
-    res.json(user);
+    
+    // Log login
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    await pool.query(
+      'INSERT INTO login_logs (user_type, user_id, username, ip_address) VALUES (?, ?, ?, ?)',
+      ['admin', user.id, user.username, ip]
+    );
+
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ ...user, token });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Customer Portal Auth
+app.post('/api/customers/login', async (req, res) => {
+  try {
+    const { phone, pin } = req.body;
+    const [rows] = await pool.query(
+      'SELECT id, name, phone, status, daily_milk_quantity, shift, customer_type, credit_balance FROM customers WHERE phone = ? AND pin = ?',
+      [phone, pin]
+    );
+    if (rows.length === 0) {
+      return res.status(401).json({ error: 'Invalid phone or PIN' });
+    }
+    const customer = rows[0];
+    if (customer.status !== 'active') {
+      return res.status(403).json({ error: 'Account is inactive' });
+    }
+
+    // Log login
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+    await pool.query(
+      'INSERT INTO login_logs (user_type, user_id, username, ip_address) VALUES (?, ?, ?, ?)',
+      ['customer', customer.id, customer.name, ip]
+    );
+
+    const token = jwt.sign({ id: customer.id, username: customer.phone, role: 'customer' }, JWT_SECRET, { expiresIn: '24h' });
+    res.json({ ...customer, role: 'customer', username: customer.phone, full_name: customer.name, token });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: Manage Access & Logs
+app.patch('/api/customers/:id/pin', async (req, res) => {
+  try {
+    const { pin } = req.body;
+    if (!pin || pin.length < 4) {
+      return res.status(400).json({ error: 'PIN must be at least 4 digits' });
+    }
+    await pool.query('UPDATE customers SET pin = ? WHERE id = ?', [pin, req.params.id]);
+    res.json({ success: true, message: 'PIN updated successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/login-logs', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM login_logs ORDER BY login_time DESC LIMIT 100'
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Customer Portal Data
+app.get('/api/portal/dashboard/:customerId', async (req, res) => {
+  try {
+    const { customerId } = req.params;
+    const today = new Date().toISOString().split('T')[0];
+    
+    const [customerRows] = await pool.query('SELECT * FROM customers WHERE id = ?', [customerId]);
+    if (customerRows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+    
+    const [deliveryRows] = await pool.query(
+      'SELECT * FROM deliveries WHERE customer_id = ? AND date = ? AND is_deleted = FALSE',
+      [customerId, today]
+    );
+    
+    const [billRows] = await pool.query(
+      'SELECT SUM(balance) as total_due FROM bills WHERE customer_id = ? AND paid = FALSE',
+      [customerId]
+    );
+
+    res.json({
+      customer: customerRows[0],
+      todayDelivery: deliveryRows[0] || null,
+      totalDue: billRows[0].total_due || 0
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/portal/deliveries/:customerId', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM deliveries WHERE customer_id = ? AND is_deleted = FALSE ORDER BY date DESC LIMIT 31',
+      [req.params.customerId]
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/portal/bills/:customerId', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT * FROM bills WHERE customer_id = ? ORDER BY bill_year DESC, bill_month DESC',
+      [req.params.customerId]
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/portal/update-quantity', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { customer_id, date, quantity, session } = req.body;
+    
+    const [customers] = await connection.query('SELECT name, phone FROM customers WHERE id = ?', [customer_id]);
+    const customer = customers[0];
+
+    const [existing] = await connection.query(
+      'SELECT * FROM deliveries WHERE customer_id = ? AND date = ? AND is_deleted = FALSE',
+      [customer_id, date]
+    );
+
+    const status = quantity > 0 ? 'delivered' : 'leave';
+    
+    if (existing.length > 0) {
+      await connection.query(
+        'UPDATE deliveries SET delivered_quantity = ?, status = ?, quantity_overridden = TRUE WHERE id = ?',
+        [quantity, status, existing[0].id]
+      );
+    } else {
+      await connection.query(
+        'INSERT INTO deliveries (customer_id, customer_name, date, scheduled_quantity, delivered_quantity, status, delivery_shift) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [customer_id, customer.name, date, quantity, quantity, status, session || 'morning']
+      );
+    }
+
+    // Create alert for admin
+    const alertMsg = `Customer #${customer_id} ${customer.name} (${customer.phone || 'No Phone'}) updated quantity to ${quantity}L for ${date}`;
+    await connection.query(
+      'INSERT INTO alerts (alert_type, message) VALUES (?, ?)',
+      ['customer_update', alertMsg]
+    );
+
+    // Send Telegram Notification
+    await sendTelegramNotification(`🔔 <b>Quantity Update</b>\n${alertMsg}`);
+
+    await connection.commit();
+    res.json({ success: true });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
+  }
+});
+
+app.post('/api/portal/complaints', async (req, res) => {
+  try {
+    const { customer_id, subject, message } = req.body;
+    await pool.query(
+      'INSERT INTO complaints (customer_id, subject, message) VALUES (?, ?, ?)',
+      [customer_id, subject, message]
+    );
+
+    // Fetch customer info for alert
+    const [customers] = await pool.query('SELECT name, phone FROM customers WHERE id = ?', [customer_id]);
+    if (customers.length > 0) {
+      const customer = customers[0];
+      const alertMsg = `New Complaint from #${customer_id} ${customer.name} (${customer.phone || 'No Phone'}): ${subject}`;
+      await pool.query(
+        'INSERT INTO alerts (alert_type, message) VALUES (?, ?)',
+        ['complaint', alertMsg]
+      );
+      
+      // Send Telegram Notification
+      await sendTelegramNotification(`🚨 <b>New Complaint</b>\n${alertMsg}\n\n<i>Message: ${message}</i>`);
+    }
+
+    res.status(201).json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/complaints', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      'SELECT c.*, cust.name as customer_name FROM complaints c JOIN customers cust ON c.customer_id = cust.id ORDER BY c.created_at DESC'
+    );
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get('/api/admin/alerts', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM alerts WHERE is_read = FALSE ORDER BY created_at DESC');
+    res.json(rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -487,10 +761,10 @@ app.get('/api/leave', async (req, res) => {
 app.post('/api/leave', async (req, res) => {
   try {
     const { customer_id, start_date, end_date, reason } = req.body;
-    if (!customer_id || !start_date || !end_date) {
-      return res.status(400).json({ error: 'customer_id, start_date, and end_date are required' });
+    if (!customer_id || !start_date) {
+      return res.status(400).json({ error: 'customer_id and start_date are required' });
     }
-    if (new Date(start_date) > new Date(end_date)) {
+    if (end_date && new Date(start_date) > new Date(end_date)) {
       return res.status(400).json({ error: 'start_date cannot be after end_date' });
     }
 
@@ -499,7 +773,7 @@ app.post('/api/leave', async (req, res) => {
 
     const [result] = await pool.query(
       'INSERT INTO leave_requests (customer_id, start_date, end_date, reason) VALUES (?, ?, ?, ?)',
-      [customer_id, start_date, end_date, reason || null]
+      [customer_id, start_date, end_date || null, reason || null]
     );
 
     res.status(201).json({
@@ -507,7 +781,7 @@ app.post('/api/leave', async (req, res) => {
       customer_id,
       customer_name: customers[0].name,
       start_date,
-      end_date,
+      end_date: end_date || null,
       reason: reason || null,
     });
   } catch (error) {
@@ -553,13 +827,13 @@ app.post('/api/deliveries', async (req, res) => {
       return res.status(400).json({ error: 'Quantities cannot be negative' });
     }
 
-    const status = leave ? 'leave' : extraQuantity > 0 ? 'extra' : 'delivered';
+    const finalStatus = req.body.status || (leave ? 'leave' : extraQuantity > 0 ? 'extra' : 'delivered');
 
     const [leaveRows] = await pool.query(
       'SELECT id FROM leave_requests WHERE customer_id = ? AND ? BETWEEN start_date AND end_date LIMIT 1',
       [customer_id, date]
     );
-    if (leaveRows.length > 0 && status !== 'leave') {
+    if (leaveRows.length > 0 && finalStatus !== 'leave') {
       return res.status(400).json({ error: 'Customer is on long leave for this date' });
     }
 
@@ -579,9 +853,9 @@ app.post('/api/deliveries', async (req, res) => {
         customer_name,
         date,
         scheduled_quantity || 0,
-        leave ? 0 : baseQuantity,
-        status,
-        leave ? 0 : extraQuantity,
+        finalStatus === 'leave' ? 0 : baseQuantity,
+        finalStatus,
+        finalStatus === 'leave' ? 0 : extraQuantity,
         delivery_shift || 'morning',
       ]
     );
@@ -603,9 +877,9 @@ app.post('/api/deliveries', async (req, res) => {
 
 app.patch('/api/deliveries/:id/soft-delete', async (req, res) => {
   try {
-    const [result] = await pool.query('UPDATE deliveries SET is_deleted = TRUE WHERE id = ?', [req.params.id]);
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Delivery not found' });
-    res.json({ success: true, message: 'Delivery moved to trash' });
+    const [result] = await pool.query('DELETE FROM deliveries WHERE id = ?', [req.params.id]);
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Delivery record not found' });
+    res.json({ success: true, message: 'Delivery reset to pending' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -652,162 +926,152 @@ app.post('/api/bills', async (req, res) => {
   }
 });
 
+async function generateBillInternal(connection, customer_id, month, year) {
+  const billMonth = Number(month);
+  const billYear = Number(year);
+
+  const startDate = `${billYear}-${String(billMonth).padStart(2, '0')}-01`;
+  const endDate = new Date(billYear, billMonth, 0).toISOString().split('T')[0];
+
+  const [customers] = await connection.query(
+    'SELECT id, name, milk_rate_per_liter, credit_balance FROM customers WHERE id = ?',
+    [customer_id]
+  );
+  if (customers.length === 0) throw new Error('Customer not found');
+
+  const customer = customers[0];
+  const [totals] = await connection.query(
+    `SELECT
+      COALESCE(SUM(d.delivered_quantity), 0) AS total_delivered,
+      COALESCE(SUM(d.extra_milk), 0) AS total_extra,
+      COUNT(DISTINCT CASE WHEN d.extra_milk > 0 THEN d.date END) AS extra_days,
+      COUNT(DISTINCT d.date) AS delivery_days
+     FROM deliveries d
+     WHERE d.customer_id = ?
+       AND d.is_deleted = FALSE
+       AND d.status IN ('delivered', 'extra')
+       AND d.date BETWEEN ? AND ?
+       AND NOT EXISTS (
+         SELECT 1 FROM leave_requests lr
+         WHERE lr.customer_id = d.customer_id
+           AND d.date BETWEEN lr.start_date AND lr.end_date
+       )`,
+    [customer_id, startDate, endDate]
+  );
+
+  const [deliveryLeaveRows] = await connection.query(
+    `SELECT COUNT(DISTINCT d.date) AS leave_days
+     FROM deliveries d
+     WHERE d.customer_id = ?
+       AND d.is_deleted = FALSE
+       AND d.status = 'leave'
+       AND d.date BETWEEN ? AND ?`,
+    [customer_id, startDate, endDate]
+  );
+
+  const [longLeaveRows] = await connection.query(
+    `SELECT COALESCE(SUM(
+      DATEDIFF(
+        LEAST(COALESCE(end_date, ?), ?),
+        GREATEST(start_date, ?)
+      ) + 1
+    ), 0) AS leave_days
+    FROM leave_requests
+    WHERE customer_id = ?
+      AND start_date <= ?
+      AND (end_date IS NULL OR end_date >= ?)`,
+    [endDate, endDate, startDate, customer_id, endDate, startDate]
+  );
+
+  const [existing] = await connection.query(
+    'SELECT * FROM bills WHERE customer_id = ? AND bill_month = ? AND bill_year = ? ORDER BY id DESC LIMIT 1',
+    [customer_id, billMonth, billYear]
+  );
+
+  const totalDelivered = Number(totals[0].total_delivered || 0);
+  const totalExtra = Number(totals[0].total_extra || 0);
+  const totalQuantity = totalDelivered + totalExtra;
+  const billAmount = Number((totalQuantity * Number(customer.milk_rate_per_liter || 0)).toFixed(2));
+  const credit = Number(customer.credit_balance || 0);
+  const creditUsed = Number(Math.min(credit, billAmount).toFixed(2));
+  const finalAmount = Number(Math.max(0, billAmount - creditUsed).toFixed(2));
+  const remainingCredit = Number(Math.max(0, credit - creditUsed).toFixed(2));
+  const leaveDays = Number(deliveryLeaveRows[0].leave_days || 0) + Number(longLeaveRows[0].leave_days || 0);
+  const extraDays = Number(totals[0].extra_days || 0);
+
+  await connection.query(
+    'UPDATE customers SET credit_balance = ? WHERE id = ?',
+    [remainingCredit, customer_id]
+  );
+
+  if (existing.length > 0) {
+    const bill = existing[0];
+    const prevAmountPaid = Number(bill.amount_paid || 0);
+    const newPaid = finalAmount <= prevAmountPaid ? 1 : 0;
+    const newBalance = Number(Math.max(0, finalAmount - prevAmountPaid).toFixed(2));
+
+    await connection.query(
+      `UPDATE bills SET
+        total_quantity = ?, gross_amount = ?, final_amount = ?, leave_days = ?, extra_days = ?,
+        total_extra_milk = ?, total_amount = ?, balance = ?, paid = ?
+       WHERE id = ?`,
+      [totalQuantity, billAmount, finalAmount, leaveDays, extraDays, totalExtra, billAmount, newBalance, newPaid, bill.id]
+    );
+    return { id: bill.id, already_exists: true };
+  } else {
+    const [result] = await connection.query(
+      `INSERT INTO bills
+       (customer_id, customer_name, bill_month, bill_year, bill_start_date, bill_end_date,
+        total_quantity, gross_amount, final_amount, leave_days, extra_days,
+        total_extra_milk, total_amount, amount_paid, balance, paid)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [customer_id, customer.name, billMonth, billYear, startDate, endDate,
+        totalQuantity, billAmount, finalAmount, leaveDays, extraDays,
+        totalExtra, billAmount, finalAmount, finalAmount <= 0 ? 1 : 0]
+    );
+    return { id: result.insertId, already_exists: false };
+  }
+}
+
 app.post('/api/bills/generate', async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-
     const { customer_id, month, year } = req.body;
-    const billMonth = Number(month);
-    const billYear = Number(year);
-
-    if (!customer_id || !billMonth || !billYear || billMonth < 1 || billMonth > 12) {
-      await connection.rollback();
-      return res.status(400).json({ error: 'customer_id, valid month, and year are required' });
-    }
-
-    const startDate = `${billYear}-${String(billMonth).padStart(2, '0')}-01`;
-    const endDate = new Date(billYear, billMonth, 0).toISOString().split('T')[0];
-
-    const [customers] = await connection.query(
-      'SELECT id, name, milk_rate_per_liter, credit_balance FROM customers WHERE id = ?',
-      [customer_id]
-    );
-    if (customers.length === 0) {
-      await connection.rollback();
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-
-    const customer = customers[0];
-    const [totals] = await connection.query(
-      `SELECT
-        COALESCE(SUM(d.delivered_quantity), 0) AS total_delivered,
-        COALESCE(SUM(d.extra_milk), 0) AS total_extra,
-        COUNT(DISTINCT CASE WHEN d.extra_milk > 0 THEN d.date END) AS extra_days,
-        COUNT(DISTINCT d.date) AS delivery_days
-       FROM deliveries d
-       WHERE d.customer_id = ?
-         AND d.is_deleted = FALSE
-         AND d.status IN ('delivered', 'extra')
-         AND d.date BETWEEN ? AND ?
-         AND NOT EXISTS (
-           SELECT 1 FROM leave_requests lr
-           WHERE lr.customer_id = d.customer_id
-             AND d.date BETWEEN lr.start_date AND lr.end_date
-         )`,
-      [customer_id, startDate, endDate]
-    );
-
-    const [deliveryLeaveRows] = await connection.query(
-      `SELECT COUNT(DISTINCT d.date) AS leave_days
-       FROM deliveries d
-       WHERE d.customer_id = ?
-         AND d.is_deleted = FALSE
-         AND d.status = 'leave'
-         AND d.date BETWEEN ? AND ?`,
-      [customer_id, startDate, endDate]
-    );
-
-    const [longLeaveRows] = await connection.query(
-      `SELECT COALESCE(SUM(
-        DATEDIFF(
-          LEAST(end_date, ?),
-          GREATEST(start_date, ?)
-        ) + 1
-      ), 0) AS leave_days
-      FROM leave_requests
-      WHERE customer_id = ?
-        AND start_date <= ?
-        AND end_date >= ?`,
-      [endDate, startDate, customer_id, endDate, startDate]
-    );
-
-    const [existing] = await connection.query(
-      'SELECT * FROM bills WHERE customer_id = ? AND bill_month = ? AND bill_year = ? ORDER BY id DESC LIMIT 1',
-      [customer_id, billMonth, billYear]
-    );
-
-    const totalDelivered = Number(totals[0].total_delivered || 0);
-    const totalExtra = Number(totals[0].total_extra || 0);
-    const totalQuantity = totalDelivered + totalExtra;
-    const billAmount = Number((totalQuantity * Number(customer.milk_rate_per_liter || 0)).toFixed(2));
-    const credit = Number(customer.credit_balance || 0);
-    const creditUsed = Number(Math.min(credit, billAmount).toFixed(2));
-    const finalAmount = Number(Math.max(0, billAmount - creditUsed).toFixed(2));
-    const remainingCredit = Number(Math.max(0, credit - creditUsed).toFixed(2));
-    const leaveDays = Number(deliveryLeaveRows[0].leave_days || 0) + Number(longLeaveRows[0].leave_days || 0);
-    const extraDays = Number(totals[0].extra_days || 0);
-    const totalDays = Number(totals[0].delivery_days || 0) + leaveDays;
-
-    await connection.query(
-      'UPDATE customers SET credit_balance = ? WHERE id = ?',
-      [remainingCredit, customer_id]
-    );
-
-    let finalBill;
-
-    if (existing.length > 0) {
-      const bill = existing[0];
-      const prevAmountPaid = Number(bill.amount_paid || 0);
-
-      // Re-calculate balance on updated total
-      const newPaid = finalAmount <= prevAmountPaid ? 1 : 0;
-      const newBalance = Number(Math.max(0, finalAmount - prevAmountPaid).toFixed(2));
-
-      await connection.query(
-        `UPDATE bills SET
-          total_quantity = ?, gross_amount = ?, final_amount = ?, leave_days = ?, extra_days = ?,
-          total_extra_milk = ?, total_amount = ?, balance = ?, paid = ?
-         WHERE id = ?`,
-        [
-          totalQuantity, billAmount, finalAmount, leaveDays, extraDays,
-          totalExtra, billAmount, newBalance, newPaid, bill.id
-        ]
-      );
-      
-      const [updatedRows] = await connection.query('SELECT * FROM bills WHERE id = ?', [bill.id]);
-      finalBill = updatedRows[0];
-      finalBill.already_exists = true;
-    } else {
-      const [result] = await connection.query(
-        `INSERT INTO bills
-         (customer_id, customer_name, bill_month, bill_year, bill_start_date, bill_end_date,
-          total_quantity, gross_amount, final_amount, leave_days, extra_days,
-          total_extra_milk, total_amount, amount_paid, balance, paid)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-        [
-          customer_id, customer.name, billMonth, billYear, startDate, endDate,
-          totalQuantity, billAmount, finalAmount, leaveDays, extraDays,
-          totalExtra, billAmount, finalAmount, finalAmount <= 0 ? 1 : 0
-        ]
-      );
-      const [newRows] = await connection.query('SELECT * FROM bills WHERE id = ?', [result.insertId]);
-      finalBill = newRows[0];
-    }
-
+    const result = await generateBillInternal(connection, customer_id, month, year);
     await connection.commit();
+    
+    // Fetch full bill data to return
+    const [rows] = await connection.query('SELECT * FROM bills WHERE id = ?', [result.id]);
+    res.status(result.already_exists ? 200 : 201).json({ ...rows[0], ...result });
+  } catch (error) {
+    await connection.rollback();
+    res.status(500).json({ error: error.message });
+  } finally {
+    connection.release();
+  }
+});
 
-    res.status(existing.length > 0 ? 200 : 201).json({
-      ...finalBill,
-      total_quantity: Number(finalBill.total_quantity || 0),
-      total_days: totalDays,
-      leave_days: Number(finalBill.leave_days || 0),
-      extra_days: Number(finalBill.extra_days || 0),
-      total_milk: Number(totalDelivered),
-      extra_milk: Number(totalExtra),
-      bill_amount: Number(finalBill.gross_amount || 0),
-      gross_amount: Number(finalBill.gross_amount || 0),
-      credit_used: creditUsed,
-      remaining_credit: remainingCredit,
-      total_amount: Number(finalBill.final_amount || 0),
-      final_amount: Number(finalBill.final_amount || 0),
-      amount_paid: Number(finalBill.amount_paid || 0),
-      balance: Number(finalBill.balance || 0),
-      total_delivered: Number(totalDelivered),
-      total_extra: Number(totalExtra)
-    });
-
-
+app.post('/api/bills/generate-batch', async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const { month, year } = req.body;
+    
+    const [customers] = await connection.query('SELECT id FROM customers WHERE status = "active"');
+    const results = [];
+    
+    for (const customer of customers) {
+      try {
+        const res = await generateBillInternal(connection, customer.id, month, year);
+        results.push({ customer_id: customer.id, success: true, ...res });
+      } catch (err) {
+        results.push({ customer_id: customer.id, success: false, error: err.message });
+      }
+    }
+    
+    await connection.commit();
+    res.json({ success: true, processed: results.length, details: results });
   } catch (error) {
     await connection.rollback();
     res.status(500).json({ error: error.message });
@@ -1231,6 +1495,157 @@ app.get('/api/reports/daily', async (req, res) => {
         total_milk:       totalMilk,
       },
       deliveries,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function migrateFarmSchema() {
+  const hasEntryDate = await columnExists('cattle', 'entry_date');
+  if (!hasEntryDate) {
+    await pool.query("ALTER TABLE cattle ADD COLUMN entry_date DATE NULL AFTER breed");
+  }
+}
+
+// Cattle Management
+app.get('/api/cattle', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT *, DATE_ADD(gestation_start_date, INTERVAL 10 MONTH) as expected_calving_date FROM cattle ORDER BY entry_date DESC, created_at DESC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/cattle', authenticateToken, async (req, res) => {
+  try {
+    console.log('--- ADD CATTLE REQUEST ---');
+    console.log('Body:', req.body);
+    const { tag_number, breed, entry_date, acquisition_cost, transport_cost, status, is_in_calf, gestation_start_date } = req.body;
+    if (!tag_number) return res.status(400).json({ error: 'Tag number is required' });
+
+    const params = [
+      tag_number, 
+      breed || 'Unknown', 
+      entry_date || new Date().toISOString().split('T')[0],
+      Number(acquisition_cost) || 0, 
+      Number(transport_cost) || 0, 
+      status || 'milking', 
+      is_in_calf ? 1 : 0, 
+      (is_in_calf && gestation_start_date) ? gestation_start_date : null
+    ];
+
+    const [result] = await pool.query(
+      'INSERT INTO cattle (tag_number, breed, entry_date, acquisition_cost, transport_cost, status, is_in_calf, gestation_start_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      params
+    );
+    console.log('Insert Result:', result);
+    res.status(201).json({ id: result.insertId, ...req.body });
+  } catch (error) {
+    console.error('Cattle Save Error:', error);
+    if (error.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Tag number already exists' });
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/cattle/:id', authenticateToken, async (req, res) => {
+  try {
+    const { tag_number, breed, entry_date, acquisition_cost, transport_cost, status, is_in_calf, gestation_start_date } = req.body;
+    if (!tag_number) return res.status(400).json({ error: 'Tag number is required' });
+
+    await pool.query(
+      'UPDATE cattle SET tag_number=?, breed=?, entry_date=?, acquisition_cost=?, transport_cost=?, status=?, is_in_calf=?, gestation_start_date=? WHERE id=?',
+      [
+        tag_number, 
+        breed, 
+        entry_date,
+        Number(acquisition_cost) || 0, 
+        Number(transport_cost) || 0, 
+        status, 
+        !!is_in_calf, 
+        (is_in_calf && gestation_start_date) ? gestation_start_date : null,
+        req.params.id
+      ]
+    );
+    res.json({ id: req.params.id, ...req.body });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/cattle/:id', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM cattle WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Feed Management
+app.get('/api/feed', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM feed_purchases ORDER BY purchase_date DESC');
+    res.json(rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/feed', authenticateToken, async (req, res) => {
+  try {
+    console.log('--- ADD FEED REQUEST ---');
+    console.log('Body:', req.body);
+    const { purchase_date, feed_type, bags_bought, cost_per_bag } = req.body;
+    const qty = Number(bags_bought) || 0;
+    const rate = Number(cost_per_bag) || 0;
+    const total_cost = qty * rate;
+
+    const params = [purchase_date || new Date().toISOString().split('T')[0], feed_type || 'General', qty, rate, total_cost];
+    console.log('Params:', params);
+
+    const [result] = await pool.query(
+      'INSERT INTO feed_purchases (purchase_date, feed_type, bags_bought, cost_per_bag, total_cost) VALUES (?, ?, ?, ?, ?)',
+      params
+    );
+    console.log('Insert Result:', result);
+    res.status(201).json({ id: result.insertId, ...req.body, total_cost });
+  } catch (error) {
+    console.error('Feed Save Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete('/api/feed/:id', authenticateToken, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM feed_purchases WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Farm Analytics
+app.get('/api/analytics/farm', authenticateToken, async (req, res) => {
+  try {
+    const [cattleStats] = await pool.query('SELECT COUNT(*) as total_cattle, SUM(acquisition_cost + transport_cost) as total_investment FROM cattle');
+    const [feedStats] = await pool.query('SELECT SUM(bags_bought) as total_bags, SUM(total_cost) as total_feed_cost FROM feed_purchases');
+    const [upcomingCalving] = await pool.query(`
+      SELECT *, DATE_ADD(gestation_start_date, INTERVAL 10 MONTH) as expected_calving_date 
+      FROM cattle 
+      WHERE is_in_calf = TRUE 
+        AND DATE_ADD(gestation_start_date, INTERVAL 10 MONTH) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
+    `);
+
+    res.json({
+      summary: {
+        total_cattle: cattleStats[0].total_cattle || 0,
+        total_investment: cattleStats[0].total_investment || 0,
+        total_bags: feedStats[0].total_bags || 0,
+        total_feed_cost: feedStats[0].total_feed_cost || 0
+      },
+      upcoming_calving: upcomingCalving
     });
   } catch (error) {
     res.status(500).json({ error: error.message });

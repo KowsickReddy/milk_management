@@ -17,19 +17,27 @@ function StatCard({ title, value, subtitle, icon: Icon, color, onClick }) {
     <button
       onClick={onClick}
       className={cn(
-        'rounded-2xl p-4 border border-white/60 text-left w-full transition-all duration-200',
-        'hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98]',
-        color
+        'rounded-3xl p-5 border border-slate-200/60 text-left w-full transition-all duration-300 bg-white',
+        'hover:shadow-lg hover:shadow-slate-200/40 hover:-translate-y-1 active:scale-[0.98]',
+        'group'
       )}
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{title}</p>
-          <p className="text-2xl font-extrabold text-gray-900 mt-1">{value}</p>
-          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+      <div className="flex flex-col gap-4">
+        <div className={cn(
+          'w-12 h-12 rounded-2xl flex items-center justify-center transition-colors duration-300',
+          color === 'stat-card-blue' ? 'bg-indigo-50 text-indigo-600' :
+          color === 'stat-card-green' ? 'bg-emerald-50 text-emerald-600' :
+          color === 'stat-card-purple' ? 'bg-purple-50 text-purple-600' :
+          'bg-amber-50 text-amber-600'
+        )}>
+          <Icon className="w-6 h-6 stroke-[2px]" />
         </div>
-        <div className="mt-1">
-          <Icon className="w-6 h-6 text-gray-600 opacity-70" />
+        <div>
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{title}</p>
+          <p className="text-xl font-black text-slate-900 mt-2 leading-none">{value}</p>
+          {subtitle && (
+            <p className="text-[10px] font-bold text-slate-400 mt-2 line-clamp-1">{subtitle}</p>
+          )}
         </div>
       </div>
     </button>
@@ -42,17 +50,16 @@ function QuickAction({ icon: Icon, label, desc, bg, onClick }) {
     <button
       onClick={onClick}
       className={cn(
-        'flex flex-col items-center gap-2 p-4 rounded-2xl border-2 border-dashed border-gray-200',
-        'hover:border-gray-300 hover:bg-gray-50 transition-all duration-200 w-full text-center',
-        'active:scale-[0.97]'
+        'flex flex-col items-center gap-3 p-6 rounded-3xl border border-slate-200/60 transition-all duration-300 bg-white group',
+        'hover:shadow-lg hover:shadow-slate-200/40 hover:-translate-y-1 active:scale-[0.97]'
       )}
     >
-      <div className={cn('w-12 h-12 rounded-xl flex items-center justify-center', bg)}>
+      <div className={cn('w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg shadow-black/5 transition-transform duration-300 group-hover:scale-110', bg)}>
         <Icon className="w-6 h-6 text-white" />
       </div>
       <div>
-        <p className="font-semibold text-gray-900 text-sm">{label}</p>
-        <p className="text-xs text-gray-400">{desc}</p>
+        <p className="font-bold text-slate-900 text-[13px] tracking-tight">{label}</p>
+        <p className="text-[10px] font-semibold text-slate-400 mt-1 uppercase tracking-wider">{desc}</p>
       </div>
     </button>
   );
@@ -171,7 +178,7 @@ function RecentDeliveries({ deliveries, customers }) {
                     }
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-gray-900">{c?.name || 'Unknown'}</p>
+                    <p className="text-sm font-semibold text-gray-900">#{c?.id} {c?.name || 'Unknown'}</p>
                     <p className="text-xs text-gray-400">{Number(d.delivered_quantity || 0).toFixed(1)} L delivered</p>
                   </div>
                 </div>
@@ -267,23 +274,23 @@ export default function Dashboard({ onNavigate }) {
   return (
     <div className="pb-24">
       {/* Header */}
-      <div className="bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 py-5 shadow-sm">
+      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Good {new Date().getHours() < 12 ? 'Morning' : 'Evening'} 👋</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{dateStr}</p>
+          <div className="pl-12 md:pl-0">
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Good {new Date().getHours() < 12 ? 'Morning' : 'Evening'} 👋</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">{dateStr}</p>
           </div>
           <button
             onClick={() => refetchStats()}
             disabled={statsLoading}
-            className="btn btn-ghost p-2"
+            className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
           >
-            <RefreshCw className={cn('w-5 h-5 text-indigo-500', statsLoading && 'animate-spin')} />
+            <RefreshCw className={cn('w-4.5 h-4.5', statsLoading && 'animate-spin')} />
           </button>
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-5 space-y-6">
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-8">
 
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

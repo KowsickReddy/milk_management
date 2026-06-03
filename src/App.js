@@ -5,7 +5,7 @@ import { AppProvider, useApp } from './context/AppContext';
 import Sidebar from './components/Sidebar';
 import BottomNav from './components/BottomNav';
 import ToastContainer from './components/Toast';
-import { Milk, Loader2, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Milk, Loader2, Lock, User, Eye, EyeOff, Phone, ArrowRight } from 'lucide-react';
 import { Button, Card } from './ui';
 import { toast } from 'react-hot-toast';
 
@@ -14,6 +14,16 @@ const Customers  = lazy(() => import('./pages/Customers'));
 const Deliveries = lazy(() => import('./pages/Deliveries'));
 const Billing    = lazy(() => import('./pages/Billing'));
 const Reports    = lazy(() => import('./pages/Reports'));
+const AccessLogs = lazy(() => import('./pages/AccessLogs'));
+const FarmManagement = lazy(() => import('./pages/FarmManagement'));
+const AccessManagement = lazy(() => import('./pages/AccessManagement'));
+const ManageLeaves     = lazy(() => import('./pages/ManageLeaves'));
+
+// Customer Portal Pages
+const PortalDashboard  = lazy(() => import('./pages/portal/PortalDashboard'));
+const PortalDeliveries = lazy(() => import('./pages/portal/PortalDeliveries'));
+const PortalBills      = lazy(() => import('./pages/portal/PortalBills'));
+const PortalSupport    = lazy(() => import('./pages/portal/PortalSupport'));
 
 // ── Loading fallback ───────────────────────────────────────────────────────
 function LoadingFallback() {
@@ -57,33 +67,42 @@ class ErrorBoundary extends React.Component {
 const DEMO_CREDENTIALS = { username: 'admin', pin: '1234' };
 
 function LoginScreen({ onLogin }) {
-  const [username, setUsername] = useState('');
-  const [pin,      setPin]      = useState('');
+  const [loginType, setLoginType] = useState('admin'); // 'admin' or 'customer'
+  const [identifier, setIdentifier] = useState(''); // username or phone
+  const [pin,        setPin]        = useState('');
   const [showPin,  setShowPin]  = useState(false);
   const [loading,  setLoading]  = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !pin.trim()) {
-      toast.error('Enter username and PIN');
+    if (!identifier.trim() || !pin.trim()) {
+      toast.error(loginType === 'admin' ? 'Enter username and PIN' : 'Enter phone and PIN');
       return;
     }
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/users/login', {
+      const endpoint = loginType === 'admin' 
+        ? 'http://localhost:5000/api/users/login' 
+        : 'http://localhost:5000/api/customers/login';
+      
+      const body = loginType === 'admin'
+        ? { username: identifier.trim(), pin: pin.trim() }
+        : { phone: identifier.trim(), pin: pin.trim() };
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), pin: pin.trim() }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Login failed');
       toast.success(`Welcome back, ${data.full_name || data.username}! 👋`);
       onLogin(data);
     } catch (err) {
-      // Fallback to demo credentials when backend not available
-      if (username === DEMO_CREDENTIALS.username && pin === DEMO_CREDENTIALS.pin) {
+      // Fallback for admin demo
+      if (loginType === 'admin' && identifier === DEMO_CREDENTIALS.username && pin === DEMO_CREDENTIALS.pin) {
         toast.success('Welcome back, Admin! 👋');
-        onLogin({ username, role: 'admin', full_name: 'Admin' });
+        onLogin({ username: identifier, role: 'admin', full_name: 'Admin' });
       } else {
         toast.error(err.message || 'Invalid credentials');
       }
@@ -93,71 +112,111 @@ function LoginScreen({ onLogin }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4"
-      style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6b48c8 100%)' }}>
-      {/* Decorative blobs */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-white/5 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-white/5 rounded-full blur-3xl translate-x-1/2 translate-y-1/2" />
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-[400px] space-y-6">
+        {/* Logo/Branding */}
+        <div className="text-center">
+          <div className="w-16 h-16 bg-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg shadow-indigo-200">
+            <Milk className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight">Dairy Manager</h1>
+          <p className="text-sm text-slate-500 mt-1 font-medium">Streamline your delivery business</p>
+        </div>
 
-      <div className="w-full max-w-sm relative">
-        {/* Glass card */}
-        <div className="bg-white/15 backdrop-blur-2xl border border-white/25 rounded-3xl p-8 shadow-2xl">
-          {/* Branding */}
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center mx-auto mb-4 border border-white/30 shadow-xl">
-              <Milk className="w-8 h-8 text-white" />
-            </div>
-            <h1 className="text-2xl font-extrabold text-white">Dairy Manager</h1>
-            <p className="text-white/60 text-sm mt-1">Sign in to your account</p>
+        {/* Login Card */}
+        <div className="bg-white rounded-3xl p-8 shadow-xl shadow-slate-200/60 border border-slate-100">
+          {/* Segmented Control Toggle */}
+          <div className="flex p-1 bg-slate-100 rounded-xl mb-8">
+            <button 
+              onClick={() => { setLoginType('admin'); setIdentifier(''); setPin(''); }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${loginType === 'admin' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Staff Login
+            </button>
+            <button 
+              onClick={() => { setLoginType('customer'); setIdentifier(''); setPin(''); }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${loginType === 'customer' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Customer Portal
+            </button>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
-            {/* Username */}
-            <div className="relative">
-              <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-white/50" />
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Username"
-                autoComplete="username"
-                className="w-full pl-11 pr-4 py-3.5 bg-white/20 border border-white/30 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm font-medium backdrop-blur-sm"
-              />
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">
+                {loginType === 'admin' ? 'Username' : 'Registered Phone'}
+              </label>
+              <div className="relative">
+                {loginType === 'admin' ? 
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" /> : 
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                }
+                <input
+                  type={loginType === 'admin' ? 'text' : 'tel'}
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  placeholder={loginType === 'admin' ? 'Enter username' : '10-digit mobile'}
+                  className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm font-medium"
+                />
+              </div>
             </div>
 
-            {/* PIN */}
-            <div className="relative">
-              <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/50" />
-              <input
-                type={showPin ? 'text' : 'password'}
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                placeholder="PIN"
-                autoComplete="current-password"
-                className="w-full pl-11 pr-11 py-3.5 bg-white/20 border border-white/30 rounded-2xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/50 text-sm font-medium backdrop-blur-sm"
-              />
-              <button
-                type="button"
-                onClick={() => setShowPin(!showPin)}
-                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white"
-              >
-                {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
+            <div>
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">Security PIN</label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                <input
+                  type={showPin ? 'text' : 'password'}
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  placeholder="••••"
+                  className="w-full pl-11 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm font-medium tracking-widest"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin(!showPin)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 bg-white text-indigo-600 font-bold rounded-2xl hover:bg-white/90 active:scale-[0.98] transition-all shadow-lg mt-2 disabled:opacity-70"
+              className="w-full py-3.5 bg-indigo-600 text-white font-bold rounded-2xl hover:bg-indigo-700 active:scale-[0.98] transition-all shadow-lg shadow-indigo-100 mt-4 disabled:opacity-70 flex items-center justify-center gap-2"
             >
-              {loading ? '⏳ Signing in...' : 'Sign In →'}
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Authenticating...
+                </>
+              ) : (
+                <>
+                  Sign In
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
 
-          <p className="text-center text-white/40 text-xs mt-6">
-            Default: admin / 1234
-          </p>
+          <div className="mt-8 text-center border-t border-slate-50 pt-6">
+            {loginType === 'admin' ? (
+              <p className="text-slate-400 text-[11px] font-medium">
+                Admin credentials required for staff access.
+              </p>
+            ) : (
+              <p className="text-slate-400 text-[11px] font-medium leading-relaxed">
+                Enter the mobile number where you receive your deliveries to access your dashboard.
+              </p>
+            )}
+          </div>
         </div>
+        
+        <p className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+          Secure Cloud Powered System
+        </p>
       </div>
     </div>
   );
@@ -167,36 +226,76 @@ function LoginScreen({ onLogin }) {
 function AppContent() {
   const [activeTab,    setActiveTab]    = useState('dashboard');
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
-  const [isLoggedIn,   setIsLoggedIn]   = useState(false);
+  const [user,         setUser]         = useState(() => {
+    try {
+      const saved = localStorage.getItem('user');
+      return (saved && saved !== 'undefined') ? JSON.parse(saved) : null;
+    } catch (e) {
+      console.error("Failed to parse user from storage", e);
+      return null;
+    }
+  });
   const { loading } = useApp();
 
-  const handleLogin  = () => setIsLoggedIn(true);
-  const handleLogout = () => { setIsLoggedIn(false); setActiveTab('dashboard'); };
+  const handleLogin  = (userData) => {
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('token', userData.token);
+    setUser(userData);
+    setActiveTab('dashboard');
+  };
+  
+  const handleLogout = () => { 
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    setUser(null); 
+    setActiveTab('dashboard'); 
+  };
 
   const renderPage = () => {
-    const props = { onNavigate: setActiveTab };
-    switch (activeTab) {
-      case 'dashboard':  return <Dashboard  {...props} />;
-      case 'customers':  return <Customers  {...props} />;
-      case 'deliveries': return <Deliveries {...props} />;
-      case 'billing':    return <Billing    {...props} />;
-      case 'reports':    return <Reports    {...props} />;
-      default:           return <Dashboard  {...props} />;
+    const props = { onNavigate: setActiveTab, user };
+    
+    // Admin/Worker Pages
+    if (user?.role === 'admin' || user?.role === 'worker') {
+      switch (activeTab) {
+        case 'dashboard':  return <Dashboard  {...props} />;
+        case 'customers':  return <Customers  {...props} />;
+        case 'deliveries': return <Deliveries {...props} />;
+        case 'billing':    return <Billing    {...props} />;
+        case 'reports':    return <Reports    {...props} />;
+        case 'access-logs':return <AccessLogs {...props} />;
+        case 'farm-mgmt':  return <FarmManagement {...props} />;
+        case 'access-mgmt':return <AccessManagement {...props} />;
+        case 'leaves':     return <ManageLeaves     {...props} />;
+        default:           return <Dashboard  {...props} />;
+      }
     }
+    
+    // Customer Portal Pages
+    if (user?.role === 'customer') {
+      switch (activeTab) {
+        case 'dashboard':  return <PortalDashboard  {...props} />;
+        case 'deliveries': return <PortalDeliveries {...props} />;
+        case 'bills':      return <PortalBills      {...props} />;
+        case 'support':    return <PortalSupport    {...props} />;
+        default:           return <PortalDashboard  {...props} />;
+      }
+    }
+
+    return <LoadingFallback />;
   };
 
   if (loading) return <LoadingFallback />;
-  if (!isLoggedIn) return <LoginScreen onLogin={handleLogin} />;
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
 
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Desktop sidebar */}
       <div className="hidden md:block">
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={true} onClose={() => {}} onLogout={handleLogout} />
+        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={true} onClose={() => {}} onLogout={handleLogout} user={user} />
       </div>
 
       {/* Mobile sidebar (drawer) */}
-      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onLogout={handleLogout} />
+      <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onLogout={handleLogout} user={user} />
 
       {/* Main content */}
       <div className="md:ml-64">
@@ -208,7 +307,7 @@ function AppContent() {
       </div>
 
       {/* Mobile bottom nav */}
-      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
+      <BottomNav activeTab={activeTab} onTabChange={setActiveTab} user={user} />
 
       {/* Mobile hamburger */}
       <button

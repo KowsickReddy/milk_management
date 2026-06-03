@@ -3,21 +3,21 @@ import { cn } from '../lib/utils';
 
 // Button variants
 const variants = {
-  primary: 'bg-primary text-white hover:bg-primary-700 active:bg-primary-800',
-  secondary: 'bg-secondary text-white hover:bg-secondary-700 active:bg-secondary-800',
-  success: 'bg-green-600 text-white hover:bg-green-700 active:bg-green-800',
-  danger: 'bg-red-600 text-white hover:bg-red-700 active:bg-red-800',
-  warning: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700',
-  outline: 'border-2 border-gray-300 text-gray-700 hover:bg-gray-50 active:bg-gray-100',
-  ghost: 'text-gray-700 hover:bg-gray-100 active:bg-gray-200',
-  link: 'text-primary hover:text-primary-700 underline-offset-4',
+  primary: 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-600/10',
+  secondary: 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg shadow-slate-900/10',
+  success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-600/10',
+  danger: 'bg-rose-600 text-white hover:bg-rose-700 shadow-lg shadow-rose-600/10',
+  warning: 'bg-amber-500 text-white hover:bg-amber-600 shadow-lg shadow-amber-500/10',
+  outline: 'border border-slate-200 text-slate-700 hover:bg-slate-50',
+  ghost: 'text-slate-600 hover:bg-slate-100 active:bg-slate-200',
+  link: 'text-indigo-600 hover:text-indigo-700 underline-offset-4',
 };
 
 // Button sizes
 const sizes = {
-  sm: 'px-3 py-1.5 text-sm',
-  md: 'px-4 py-2.5 text-base',
-  lg: 'px-6 py-3 text-lg',
+  sm: 'px-3.5 py-1.5 text-xs',
+  md: 'px-5 py-2.5 text-sm',
+  lg: 'px-7 py-3.5 text-base',
   icon: 'p-2.5',
 };
 
@@ -38,9 +38,9 @@ export function Button({
     <button
       type={type}
       className={cn(
-        'inline-flex items-center justify-center gap-2 font-medium rounded-lg',
+        'inline-flex items-center justify-center gap-2 font-semibold rounded-2xl',
         'transition-all duration-200 ease-in-out',
-        'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:ring-offset-2',
+        'focus:outline-none focus:ring-4 focus:ring-indigo-500/10',
         'disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none',
         'active:scale-[0.98]',
         fullWidth && 'w-full',

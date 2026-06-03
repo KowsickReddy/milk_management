@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import api from '../services/api';
 import { cn, getToday, getInitials } from '../lib/utils';
 import { Card, ConfirmModal, Input, Select } from '../ui';
-
+import { motion } from 'framer-motion';
 
 // ── Delivery status helper ───────────────────────────────────────────────
 function getDeliveryStatus(delivery) {
@@ -32,19 +32,21 @@ function DailySummaryBar({ deliveredList, pendingList, leaveList, totalMilk }) {
         { label: 'On Leave',  value: leaveList.length,     color: 'stat-card-rose',  icon: <CalendarOff className="w-4 h-4 text-rose-500" /> },
         { label: 'Total Milk',value: `${totalMilk.toFixed(1)} L`, color: 'stat-card-blue', icon: <Milk className="w-4 h-4 text-indigo-600" /> },
       ].map(({ label, value, color, icon }) => (
-        <div key={label} className={cn('rounded-2xl p-3 border border-white/50', color)}>
-          <div className="flex items-center gap-2 mb-1">
-            {icon}
-            <p className="text-xs text-gray-500 font-medium">{label}</p>
+        <div key={label} className={cn('rounded-3xl p-4 border border-slate-100 shadow-sm bg-white', color)}>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 rounded-xl bg-white/50 flex items-center justify-center">
+              {icon}
+            </div>
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-wider">{label}</p>
           </div>
-          <p className="text-xl font-bold text-gray-900">{value}</p>
+          <p className="text-xl font-black text-slate-900">{value}</p>
         </div>
       ))}
-      {/* Progress bar spanning full width */}
-      <div className="col-span-2 md:col-span-4">
-        <div className="flex justify-between text-xs text-gray-500 mb-1">
+      {/* Progress bar */}
+      <div className="col-span-2 md:col-span-4 bg-white p-4 rounded-3xl border border-slate-100 shadow-sm">
+        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
           <span>Delivery Progress</span>
-          <span className="font-semibold">{deliveredPct}% done</span>
+          <span className="text-indigo-600">{deliveredPct}% Complete</span>
         </div>
         <div className="progress-bar-track">
           <div
@@ -58,7 +60,7 @@ function DailySummaryBar({ deliveredList, pendingList, leaveList, totalMilk }) {
 }
 
 // ── Delivery Card ──────────────────────────────────────────────────────-─
-function DeliveryCard({ customer, delivery, onAction }) {
+function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset }) {
   const [extraQty,   setExtraQty]   = useState('');
   const [showExtra,  setShowExtra]  = useState(false);
 
@@ -76,158 +78,137 @@ function DeliveryCard({ customer, delivery, onAction }) {
 
   return (
     <Card className={cn(
-      'glass-card p-4 transition-all duration-300',
-      isDelivered && 'border-l-4 border-l-emerald-500',
-      isLeave     && 'border-l-4 border-l-amber-400',
-      isPending   && 'border-l-4 border-l-gray-200',
+      'p-5 transition-all duration-300 relative overflow-hidden group',
+      isDelivered && 'border-l-4 border-l-emerald-500 bg-emerald-50/10',
+      isLeave     && 'border-l-4 border-l-rose-400 bg-rose-50/10',
+      isPending   && 'border-l-4 border-l-slate-200',
     )}>
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className={cn(
-            'w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0',
-            isDelivered ? 'bg-emerald-100 text-emerald-700'
-            : isLeave   ? 'bg-amber-100 text-amber-700'
-            : 'bg-gray-100 text-gray-600'
+            'w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0 transition-transform duration-300 group-hover:scale-110',
+            isDelivered ? 'bg-emerald-100 text-emerald-700 shadow-emerald-100'
+            : isLeave   ? 'bg-rose-100 text-rose-700 shadow-rose-100'
+            : 'bg-slate-100 text-slate-500 shadow-slate-100 shadow-inner'
           )}>
             {getInitials(customer.name)}
           </div>
           <div>
-            <h3 className="font-bold text-gray-900 text-sm leading-tight">{customer.name}</h3>
-            <div className="flex items-center gap-1.5 mt-0.5">
-              {shiftIcon}
-              <span className="text-xs text-gray-400">{customer.shift}</span>
+            <h3 className="font-black text-slate-900 text-[15px] tracking-tight leading-none">#{customer.id} {customer.name}</h3>
+            <div className="flex items-center gap-2 mt-2">
+              <span className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                {shiftIcon} {customer.shift}
+              </span>
               {customer.phone && (
-                <span className="text-xs text-gray-300">· {customer.phone}</span>
+                <span className="text-[10px] font-bold text-slate-300 tracking-tighter">📞 {customer.phone}</span>
               )}
             </div>
           </div>
         </div>
         <div className={cn(
           'badge',
-          isDelivered ? 'badge-success' : isLeave ? 'badge-warning' : 'badge-neutral'
+          isDelivered ? 'badge-success' : isLeave ? 'badge-danger' : 'badge-neutral'
         )}>
-          {isDelivered ? '✓ Done' : isLeave ? '🏖 Leave' : '⏳ Pending'}
+          {isDelivered ? '✓ Delivered' : isLeave ? 'On Leave' : 'Pending'}
         </div>
       </div>
 
       {/* Long leave banner */}
       {isLongLeave && (
-        <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700 font-medium">
-          <CalendarOff className="w-3.5 h-3.5" />
-          On scheduled long leave
+        <div className="mt-4 flex items-center gap-2 px-4 py-3 bg-amber-50 border border-amber-200 rounded-2xl text-[11px] text-amber-700 font-bold">
+          <CalendarOff className="w-4 h-4" />
+          SYSTEM BLOCKED: CUSTOMER ON LONG LEAVE
         </div>
       )}
 
       {/* Quantities row */}
-      <div className="mt-3 flex items-center gap-4 text-xs">
-        <div className="bg-gray-50 px-3 py-1.5 rounded-lg">
-          <span className="text-gray-400">Scheduled </span>
-          <span className="font-bold text-gray-700">{scheduledQty}L</span>
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100">
+          <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Standard</p>
+          <p className="text-sm font-black text-slate-700">{scheduledQty}L</p>
         </div>
-        {isDelivered && delivery?.delivered_quantity != null && (
-          <div className="bg-emerald-50 px-3 py-1.5 rounded-lg">
-            <span className="text-emerald-600">Delivered </span>
-            <span className="font-bold text-emerald-700">{delivery.delivered_quantity}L</span>
+        {isDelivered ? (
+          <div className="bg-emerald-50/50 p-3 rounded-2xl border border-emerald-100">
+            <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Delivered</p>
+            <p className="text-sm font-black text-emerald-700">{parseFloat(delivery.delivered_quantity || 0) + extraMilk}L</p>
           </div>
-        )}
-        {extraMilk > 0 && (
-          <div className="bg-indigo-50 px-3 py-1.5 rounded-lg">
-            <span className="text-indigo-600">Extra </span>
-            <span className="font-bold text-indigo-700">+{extraMilk}L</span>
+        ) : (
+          <div className="bg-slate-50/50 p-3 rounded-2xl border border-slate-100 border-dashed">
+            <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Status</p>
+            <p className="text-sm font-black text-slate-400 italic">Waiting...</p>
           </div>
         )}
       </div>
 
       {/* Action buttons */}
       {!isLongLeave && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-5 pt-5 border-t border-slate-50 space-y-2.5">
           {isPending ? (
             <>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => onAction(customer, 'delivered', scheduledQty, 0)}
-                  className="btn btn-success text-xs py-2.5"
-                >
-                  <Check className="w-3.5 h-3.5 mr-1.5" /> Delivered
-                </button>
+              <button
+                onClick={() => onQuickDeliver(customer)}
+                className="w-full btn btn-primary flex items-center justify-center gap-2 py-3.5 shadow-lg shadow-indigo-100 active:scale-95"
+              >
+                <Check className="w-5 h-5 stroke-[3px]" />
+                MARK AS DELIVERED
+              </button>
+              <div className="grid grid-cols-2 gap-2.5">
                 <button
                   onClick={() => onAction(customer, 'leave', 0, 0)}
-                  className="btn btn-amber text-xs py-2.5"
+                  className="btn btn-outline border-slate-100 text-slate-500 py-3 bg-slate-50/30"
                 >
-                  <X className="w-3.5 h-3.5 mr-1.5" /> Leave
+                  <CalendarOff className="w-4 h-4 mr-2" />
+                  Leave
+                </button>
+                <button
+                  onClick={() => setShowExtra(!showExtra)}
+                  className="btn btn-outline border-slate-100 text-slate-500 py-3 bg-slate-50/30"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Extra
                 </button>
               </div>
-              <button
-                className="btn btn-ghost text-xs w-full text-indigo-600"
-                onClick={() => setShowExtra(!showExtra)}
-              >
-                <Plus className="w-3.5 h-3.5 mr-1" /> Extra Milk
-              </button>
-              {showExtra && (
-                <div className="flex gap-2 animate-slide-up">
-                  <Input
-                    type="number" step="0.5" min="0"
-                    placeholder="Extra Qty (L)"
-                    value={extraQty}
-                    onChange={(e) => setExtraQty(e.target.value)}
-                    className="flex-1 h-10 text-sm"
-                  />
-                  <button
-                    className="btn btn-primary text-xs px-4"
-                    onClick={() => {
-                      const parsed = parseFloat(extraQty);
-                      if (parsed > 0) {
-                        onAction(customer, 'extra', scheduledQty, parsed);
-                        setExtraQty('');
-                        setShowExtra(false);
-                      }
-                    }}
-                  >Add</button>
-                </div>
-              )}
             </>
           ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  className="btn btn-ghost text-xs py-2"
-                  onClick={() => onAction(customer,
-                    isLeave ? 'delivered' : 'leave',
-                    isLeave ? scheduledQty : 0, 0
-                  )}
-                >
-                  <Repeat2 className="w-3.5 h-3.5 mr-1" />
-                  {isLeave ? 'Mark Delivered' : 'Mark Leave'}
-                </button>
-                <button
-                  className="btn btn-ghost text-xs py-2 text-indigo-600"
-                  onClick={() => { setShowExtra(!showExtra); setExtraQty(extraMilk ? String(extraMilk) : ''); }}
-                  disabled={isLeave}
-                >
-                  <Plus className="w-3.5 h-3.5 mr-1" /> Edit Extra
-                </button>
-              </div>
-              {showExtra && !isLeave && (
-                <div className="flex gap-2 animate-slide-up">
-                  <Input
-                    type="number" step="0.5" min="0"
-                    placeholder="Extra Qty (L)"
-                    value={extraQty}
-                    onChange={(e) => setExtraQty(e.target.value)}
-                    className="flex-1 h-10 text-sm"
-                  />
-                  <button
-                    className="btn btn-primary text-xs px-4"
-                    onClick={() => {
-                      const parsed = parseFloat(extraQty || 0);
-                      onAction(customer, parsed > 0 ? 'extra' : 'delivered', scheduledQty, parsed);
-                      setShowExtra(false);
-                    }}
-                  >Save</button>
-                </div>
-              )}
-            </>
+            <div className="flex gap-2">
+              <button
+                onClick={() => onReset(delivery)}
+                className="flex-1 btn btn-ghost text-[11px] py-2.5 text-rose-500 hover:bg-rose-50 rounded-xl font-black uppercase tracking-tighter"
+              >
+                Reset to Pending
+              </button>
+              <button
+                onClick={() => setShowExtra(!showExtra)}
+                className="flex-1 btn btn-ghost text-[11px] py-2.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl font-bold"
+              >
+                {extraMilk > 0 ? 'Update Extra' : 'Add Extra Milk'}
+              </button>
+            </div>
+          )}
+
+          {showExtra && (
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-2 bg-indigo-50/50 p-3 rounded-2xl border border-indigo-100 mt-2">
+              <input
+                type="number"
+                step="0.1"
+                autoFocus
+                placeholder="Liters"
+                value={extraQty}
+                onChange={(e) => setExtraQty(e.target.value)}
+                className="w-full bg-white border border-indigo-200 px-4 py-2 rounded-xl text-sm font-bold text-indigo-900 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 placeholder:text-indigo-200"
+              />
+              <button
+                onClick={() => {
+                  onAction(customer, 'extra', scheduledQty, parseFloat(extraQty || 0));
+                  setExtraQty('');
+                  setShowExtra(false);
+                }}
+                className="btn btn-primary px-6 py-2 text-xs uppercase tracking-widest font-black"
+              >
+                Save
+              </button>
+            </motion.div>
           )}
         </div>
       )}
@@ -237,13 +218,13 @@ function DeliveryCard({ customer, delivery, onAction }) {
 
 // ── Main Deliveries Page ─────────────────────────────────────────────────
 export default function Deliveries() {
-  const queryClient        = useQueryClient();
+  const queryClient = useQueryClient();
   const [selectedDate,    setSelectedDate]    = useState(getToday());
   const [selectedShift,   setSelectedShift]   = useState('all');
+  const [selectedRoute,   setSelectedRoute]   = useState('all');
   const [modalState,      setModalState]      = useState({ isOpen: false, customer: null, action: null, payload: null });
   const [leaveForm,       setLeaveForm]       = useState({ customer_id: '', start_date: '', end_date: '', reason: '' });
   const [showLeaveForm,   setShowLeaveForm]   = useState(false);
-  const [optimisticDeliveries, setOptimisticDeliveries] = useState([]);
   const undoTimeouts = useRef({});
 
   const { data: customers  = [], isLoading: loadingCust } = useQuery({
@@ -265,51 +246,99 @@ export default function Deliveries() {
   const activeCustomers = useMemo(() => {
     let result = customers.filter(c => c.status === 'active');
     if (selectedShift !== 'all') result = result.filter(c => c.shift === selectedShift);
+    if (selectedRoute !== 'all') result = result.filter(c => c.route_area === selectedRoute);
     return result;
-  }, [customers, selectedShift]);
+  }, [customers, selectedShift, selectedRoute]);
 
-  const visibleDeliveries = useMemo(() => {
-    const merged = deliveries.filter(d => !d.is_deleted);
-    optimisticDeliveries.forEach((pending) => {
-      const idx = merged.findIndex(d =>
-        d.customer_id === pending.customer_id &&
-        d.date        === pending.date &&
-        d.delivery_shift === pending.delivery_shift
-      );
-      if (idx >= 0) merged[idx] = pending;
-      else merged.push(pending);
-    });
-    return merged;
-  }, [deliveries, optimisticDeliveries]);
+  const routes = useMemo(() => {
+    const uniqueRoutes = [...new Set(customers.map(c => c.route_area).filter(Boolean))];
+    return ['all', ...uniqueRoutes];
+  }, [customers]);
 
   const { deliveredList, pendingList, leaveList, totalMilk } = useMemo(() => {
     const dList = [], pList = [], lList = [];
     let milk = 0;
+    
     activeCustomers.forEach(customer => {
-      const delivery = visibleDeliveries.find(d => d.customer_id === customer.id && !d.is_deleted);
+      // Robust matching: prioritize explicit delivery entries
+      const delivery = deliveries.find(d => 
+        Number(d.customer_id) === Number(customer.id)
+      );
+      
       const status   = getDeliveryStatus(delivery);
       if (status === 'delivered' || status === 'extra') {
         dList.push({ customer, delivery });
         milk += parseFloat(delivery?.delivered_quantity || 0) + parseFloat(delivery?.extra_milk || 0);
-      } else if (status === 'leave') lList.push({ customer, delivery });
-      else pList.push({ customer, delivery: null });
+      } else if (status === 'leave') {
+        lList.push({ customer, delivery });
+      } else {
+        pList.push({ customer, delivery: null });
+      }
     });
+    
     return { deliveredList: dList, pendingList: pList, leaveList: lList, totalMilk: milk };
-  }, [activeCustomers, visibleDeliveries]);
+  }, [activeCustomers, deliveries]);
 
   const buildPayload = (customer, status, baseQuantity, extraMilk) => ({
-    customer_id:        customer.id,
+    customer_id:        Number(customer.id),
     customer_name:      customer.name,
     date:               selectedDate,
     scheduled_quantity: parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0),
     delivered_quantity: status === 'leave' ? 0 : parseFloat(baseQuantity || 0),
     status,
-    delivered:          status !== 'leave',
-    leave:              status === 'leave',
     extra_milk:         status === 'leave' ? 0 : parseFloat(extraMilk || 0),
     delivery_shift:     customer.shift || 'morning',
     is_deleted:         false,
   });
+
+  const handleQuickDeliver = async (customer) => {
+    const qty = parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+    const payload = buildPayload(customer, 'delivered', qty, 0);
+    
+    // 1. Instant Cache Update
+    queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
+      const entry = { 
+        ...payload, 
+        id: `temp-${Date.now()}`, 
+        delivered: true, 
+        leave: false,
+        status: 'delivered',
+        session: customer.shift || 'morning',
+        delivery_shift: customer.shift || 'morning'
+      };
+      const idx = old.findIndex(d => Number(d.customer_id) === Number(customer.id));
+      if (idx > -1) {
+        const next = [...old];
+        next[idx] = entry;
+        return next;
+      }
+      return [...old, entry];
+    });
+
+    try {
+      await api.deliveries.create(payload);
+      toast.success(`Marked #${customer.id} ${customer.name}`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
+    }
+  };
+
+  const handleReset = async (delivery) => {
+    if (!delivery?.id) return;
+    if (String(delivery.id).startsWith('temp-')) return;
+    
+    if (!window.confirm('Reset this delivery to pending?')) return;
+
+    try {
+      await api.deliveries.softDelete(delivery.id);
+      queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
+      toast.success('Reset to pending');
+    } catch (err) {
+      toast.error('Failed to reset: ' + err.message);
+    }
+  };
 
   const handleActionClick = (customer, status, baseQuantity, extraMilk) => {
     setModalState({
@@ -322,65 +351,58 @@ export default function Deliveries() {
 
   const closeModal = () => setModalState({ isOpen: false, customer: null, action: null, payload: null });
 
-  const confirmAction = () => {
+  const confirmAction = async () => {
     if (!modalState.payload) return;
-    const payload  = modalState.payload;
-    const tempId   = `pending-${Date.now()}-${payload.customer_id}`;
-    const optimistic = { ...payload, id: tempId, pending_sync: true };
+    const payload = modalState.payload;
+    const customerId = payload.customer_id;
+    
     closeModal();
-    setOptimisticDeliveries(prev => [...prev, optimistic]);
 
-    const timeoutId = setTimeout(async () => {
-      try {
-        await api.deliveries.create(payload);
-        setOptimisticDeliveries(prev => prev.filter(d => d.id !== tempId));
-        queryClient.invalidateQueries({ queryKey: ['deliveries'] });
-        toast.success('✅ Delivery saved');
-      } catch (error) {
-        setOptimisticDeliveries(prev => prev.filter(d => d.id !== tempId));
-        toast.error(error.message || 'Failed to save delivery');
-      } finally {
-        delete undoTimeouts.current[tempId];
+    // 1. Instant Cache Update
+    queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
+      const entry = { 
+        ...payload, 
+        id: `temp-${Date.now()}`, 
+        delivered: payload.status !== 'leave',
+        leave: payload.status === 'leave',
+        status: payload.status
+      };
+      const idx = old.findIndex(d => Number(d.customer_id) === Number(customerId));
+      if (idx > -1) {
+        const next = [...old];
+        next[idx] = entry;
+        return next;
       }
-    }, 5000);
+      return [...old, entry];
+    });
 
-    undoTimeouts.current[tempId] = timeoutId;
-
-    toast((t) => (
-      <span className="flex items-center gap-3 text-sm">
-        <span>Marked: <strong>{payload.customer_name}</strong></span>
-        <button
-          className="text-red-500 font-bold text-xs border border-red-200 px-2 py-1 rounded-lg hover:bg-red-50"
-          onClick={() => {
-            clearTimeout(undoTimeouts.current[tempId]);
-            delete undoTimeouts.current[tempId];
-            setOptimisticDeliveries(prev => prev.filter(d => d.id !== tempId));
-            toast.dismiss(t.id);
-            toast.success('↩ Action undone');
-          }}
-        >
-          <Undo2 className="w-3 h-3 inline mr-1" />UNDO
-        </button>
-      </span>
-    ), { duration: 5000 });
+    try {
+      await api.deliveries.create(payload);
+      toast.success('✅ Saved');
+    } catch (error) {
+      toast.error(error.message || 'Failed');
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
+    }
   };
 
   const submitLongLeave = async () => {
-    if (!leaveForm.customer_id || !leaveForm.start_date || !leaveForm.end_date) {
-      toast.error('Select customer and date range');
+    if (!leaveForm.customer_id || !leaveForm.start_date) {
+      toast.error('Select customer and start date');
       return;
     }
     try {
       await api.leave.create({
         customer_id: Number(leaveForm.customer_id),
         start_date:  leaveForm.start_date,
-        end_date:    leaveForm.end_date,
-        reason:      leaveForm.reason,
+        end_date:    leaveForm.end_date || null,
+        reason:      leaveForm.reason || null,
       });
       toast.success('📅 Long leave saved');
       setLeaveForm({ customer_id: '', start_date: '', end_date: '', reason: '' });
       setShowLeaveForm(false);
-      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      // Wait for cache to clear so UI updates
+      await queryClient.invalidateQueries({ queryKey: ['deliveries'] });
     } catch (error) {
       toast.error(error.message || 'Failed to save leave');
     }
@@ -390,7 +412,6 @@ export default function Deliveries() {
     const date = new Date(selectedDate);
     date.setDate(date.getDate() + days);
     setSelectedDate(date.toISOString().split('T')[0]);
-    setOptimisticDeliveries([]);
   };
 
   if (loadingCust || loadingDel) return (
@@ -401,37 +422,41 @@ export default function Deliveries() {
 
   return (
     <div className="pb-28">
-      {/* Sticky Header */}
-      <div className="bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 py-4 sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gradient">Deliveries</h1>
-            <p className="text-gray-400 text-xs mt-0.5">
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="pl-12 md:pl-0">
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Deliveries</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">
               {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
           </div>
-          <button onClick={() => refetch()} disabled={isFetching} className="btn btn-ghost p-2">
-            <RefreshCw className={cn('w-5 h-5 text-indigo-500', isFetching && 'animate-spin')} />
+          <button 
+            onClick={() => refetch()} 
+            disabled={isFetching} 
+            className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
+          >
+            <RefreshCw className={cn('w-4.5 h-4.5', isFetching && 'animate-spin')} />
           </button>
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-5 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Date navigator + shift filter */}
-        <Card className="glass-card p-3 flex flex-col sm:flex-row gap-3">
+        <Card className="p-3 flex flex-col sm:flex-row gap-3 border-slate-100 shadow-sm">
           <div className="flex items-center gap-2 flex-1">
-            <button onClick={() => navigateDate(-1)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors">
-              <ChevronLeft className="w-5 h-5 text-gray-600" />
+            <button onClick={() => navigateDate(-1)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
+              <ChevronLeft className="w-5 h-5 text-slate-600" />
             </button>
             <Input
               type="date"
               value={selectedDate}
-              onChange={(e) => { setSelectedDate(e.target.value); setOptimisticDeliveries([]); }}
-              className="flex-1 text-center font-semibold text-gray-800"
+              onChange={(e) => { setSelectedDate(e.target.value); }}
+              className="flex-1 text-center font-black text-slate-800 border-none bg-transparent focus:ring-0"
             />
-            <button onClick={() => navigateDate(1)} className="p-2 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors">
-              <ChevronRight className="w-5 h-5 text-gray-600" />
+            <button onClick={() => navigateDate(1)} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">
+              <ChevronRight className="w-5 h-5 text-slate-600" />
             </button>
           </div>
           <Select
@@ -444,9 +469,15 @@ export default function Deliveries() {
             ]}
             className="w-full sm:w-40"
           />
+          <Select
+            value={selectedRoute}
+            onChange={(e) => setSelectedRoute(e.target.value)}
+            options={routes.map(r => ({ value: r, label: r === 'all' ? '🚩 All Routes' : `📍 ${r}` }))}
+            className="w-full sm:w-40"
+          />
           <button
-            onClick={() => { setSelectedDate(getToday()); setOptimisticDeliveries([]); }}
-            className="btn btn-ghost text-xs text-indigo-600 whitespace-nowrap"
+            onClick={() => { setSelectedDate(getToday()); }}
+            className="btn btn-ghost text-xs font-black text-indigo-600 whitespace-nowrap uppercase tracking-widest"
           >
             Today
           </button>
@@ -461,32 +492,35 @@ export default function Deliveries() {
         />
 
         {/* Long Leave panel (collapsible) */}
-        <Card className="glass-card">
+        <Card className="border-slate-100 p-0 overflow-hidden shadow-sm">
           <button
             onClick={() => setShowLeaveForm(!showLeaveForm)}
-            className="w-full flex items-center justify-between p-4 text-left"
+            className="w-full flex items-center justify-between p-5 text-left hover:bg-slate-50 transition-colors"
           >
             <div>
-              <p className="font-bold text-gray-900 text-sm">📅 Mark Long Leave</p>
-              <p className="text-xs text-gray-400 mt-0.5">Block deliveries for a date range</p>
+              <p className="font-black text-slate-900 text-sm tracking-tight">📅 MARK LONG LEAVE</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Block deliveries for a date range</p>
             </div>
-            <ChevronLeft className={cn('w-5 h-5 text-gray-400 transition-transform', showLeaveForm ? '-rotate-90' : 'rotate-180')} />
+            <ChevronLeft className={cn('w-5 h-5 text-slate-300 transition-transform duration-300', showLeaveForm ? '-rotate-90' : 'rotate-180')} />
           </button>
           {showLeaveForm && (
-            <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-5 gap-3 animate-slide-down">
+            <div className="px-5 pb-5 grid grid-cols-1 md:grid-cols-5 gap-3 animate-slide-down">
               <Select
                 value={leaveForm.customer_id}
                 onChange={(e) => setLeaveForm(p => ({ ...p, customer_id: e.target.value }))}
                 options={[
                   { value: '', label: 'Select customer' },
-                  ...activeCustomers.map(c => ({ value: c.id, label: c.name })),
+                  ...activeCustomers.map(c => ({ value: c.id, label: `#${c.id} ${c.name} - ${c.phone}` })),
                 ]}
               />
               <Input type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm(p => ({ ...p, start_date: e.target.value }))} placeholder="Start date" />
-              <Input type="date" value={leaveForm.end_date}   onChange={(e) => setLeaveForm(p => ({ ...p, end_date:   e.target.value }))} placeholder="End date" />
+              <div className="flex flex-col gap-1">
+                <Input type="date" value={leaveForm.end_date} onChange={(e) => setLeaveForm(p => ({ ...p, end_date: e.target.value }))} placeholder="End date" />
+                <p className="text-[9px] text-slate-400 ml-1 font-bold italic">* Optional if unknown</p>
+              </div>
               <Input value={leaveForm.reason} onChange={(e) => setLeaveForm(p => ({ ...p, reason: e.target.value }))} placeholder="Reason (optional)" />
-              <button onClick={submitLongLeave} className="btn btn-amber">
-                Save Leave
+              <button onClick={submitLongLeave} className="btn btn-amber py-3 shadow-amber-100">
+                SAVE LEAVE
               </button>
             </div>
           )}
@@ -494,21 +528,21 @@ export default function Deliveries() {
 
         {/* Delivery sections */}
         {activeCustomers.length === 0 ? (
-          <div className="text-center py-16 bg-white/40 rounded-3xl border-2 border-dashed border-gray-200">
-            <Package className="w-14 h-14 mx-auto text-gray-200 mb-4" />
-            <p className="font-bold text-gray-900">No active customers</p>
+          <div className="text-center py-20 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm">
+            <Package className="w-16 h-16 mx-auto text-slate-100 mb-4" />
+            <p className="font-black text-slate-400 uppercase tracking-widest text-xs">No active customers found</p>
           </div>
         ) : (
-          <div className="space-y-8">
+          <div className="space-y-10">
             {pendingList.length > 0 && (
               <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-gray-400" />
-                  <h2 className="text-base font-bold text-gray-700">Pending ({pendingList.length})</h2>
+                <div className="flex items-center gap-3 mb-5 ml-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-300 animate-pulse" />
+                  <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Pending ({pendingList.length})</h2>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {pendingList.map(({ customer }) => (
-                    <DeliveryCard key={customer.id} customer={customer} delivery={null} onAction={handleActionClick} />
+                    <DeliveryCard key={customer.id} customer={customer} delivery={null} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} />
                   ))}
                 </div>
               </section>
@@ -516,13 +550,13 @@ export default function Deliveries() {
 
             {deliveredList.length > 0 && (
               <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <h2 className="text-base font-bold text-emerald-700">Delivered ({deliveredList.length})</h2>
+                <div className="flex items-center gap-3 mb-5 ml-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <h2 className="text-xs font-black text-emerald-600 uppercase tracking-[0.2em]">Delivered ({deliveredList.length})</h2>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-80 hover:opacity-100 transition-opacity">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {deliveredList.map(({ customer, delivery }) => (
-                    <DeliveryCard key={customer.id} customer={customer} delivery={delivery} onAction={handleActionClick} />
+                    <DeliveryCard key={customer.id} customer={customer} delivery={delivery} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} />
                   ))}
                 </div>
               </section>
@@ -530,13 +564,13 @@ export default function Deliveries() {
 
             {leaveList.length > 0 && (
               <section>
-                <div className="flex items-center gap-2 mb-4">
-                  <div className="w-2 h-2 rounded-full bg-amber-400" />
-                  <h2 className="text-base font-bold text-amber-700">On Leave ({leaveList.length})</h2>
+                <div className="flex items-center gap-3 mb-5 ml-1">
+                  <div className="w-2.5 h-2.5 rounded-full bg-rose-500" />
+                  <h2 className="text-xs font-black text-rose-600 uppercase tracking-[0.2em]">On Leave ({leaveList.length})</h2>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 opacity-75 hover:opacity-100 transition-opacity">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 opacity-80">
                   {leaveList.map(({ customer, delivery }) => (
-                    <DeliveryCard key={customer.id} customer={customer} delivery={delivery} onAction={handleActionClick} />
+                    <DeliveryCard key={customer.id} customer={customer} delivery={delivery} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} />
                   ))}
                 </div>
               </section>

@@ -5,7 +5,7 @@ import * as yup from 'yup';
 import { yupResolver } from '@hookform/resolvers/yup';
 import {
   Plus, RefreshCw, Phone, MapPin, Edit2, Trash2,
-  Search, Milk, Wallet, UserCheck, UserX, Users,
+  Search, Milk, Wallet, UserCheck, UserX, Users, Key
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -26,6 +26,7 @@ const schema = yup.object().shape({
   milk_rate_per_liter: yup.number().typeError('Required').positive('Must be > 0').required(),
   shift:               yup.string().required(),
   status:              yup.string().required(),
+  route_area:          yup.string().optional(),
 });
 
 // ── Customer Form Modal ───────────────────────────────────────────────────
@@ -41,7 +42,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
     defaultValues: editingCustomer || {
       name: '', phone: '', address: '',
       daily_milk_quantity: '', milk_rate_per_liter: '',
-      shift: 'morning', status: 'active',
+      shift: 'morning', status: 'active', route_area: 'Default',
     },
   });
 
@@ -49,7 +50,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
     if (isOpen) reset(editingCustomer || {
       name: '', phone: '', address: '',
       daily_milk_quantity: '', milk_rate_per_liter: '',
-      shift: 'morning', status: 'active',
+      shift: 'morning', status: 'active', route_area: 'Default',
     });
   }, [isOpen, editingCustomer, reset]);
 
@@ -109,6 +110,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
+            {field('Route / Area', 'route_area', 'text', { placeholder: 'Ex: Sector 14' })}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Shift</label>
               <select {...register('shift')} className="input">
@@ -117,6 +119,9 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
                 <option value="occasional">🔄 Occasional</option>
               </select>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
               <select {...register('status')} className="input">
@@ -134,6 +139,66 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
           </Button>
         </ModalFooter>
       </form>
+    </ModalContent>
+  );
+}
+
+// ── Manage Access Modal ──────────────────────────────────────────────────
+function ManageAccessModal({ isOpen, onClose, customer }) {
+  const [pin, setPin] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setPin('');
+  }, [isOpen]);
+
+  const handleUpdatePin = async () => {
+    if (pin.length < 4) {
+      toast.error('PIN must be at least 4 digits');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.customers.updatePin(customer.id, pin);
+      toast.success('Login PIN updated successfully');
+      onClose();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen || !customer) return null;
+
+  return (
+    <ModalContent isOpen={isOpen} onClose={onClose} size="sm">
+      <ModalHeader onClose={onClose}>🔐 Manage Access</ModalHeader>
+      <ModalBody className="space-y-4">
+        <div className="p-4 bg-indigo-50 rounded-2xl">
+          <p className="text-[10px] text-indigo-400 font-bold uppercase mb-1">Customer Identifier</p>
+          <p className="font-bold text-indigo-900">#{customer.id} {customer.name}</p>
+          <p className="text-xs text-indigo-600 font-medium mt-1">📞 {customer.phone || 'No phone registered'}</p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Set New PIN</label>
+          <input
+            type="text"
+            maxLength={6}
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+            placeholder="Ex: 1234"
+            className="input font-mono tracking-widest text-lg text-center"
+          />
+          <p className="text-[10px] text-gray-400 mt-2">PIN should be 4-6 digits. Provide this PIN to the customer for portal login.</p>
+        </div>
+      </ModalBody>
+      <ModalFooter>
+        <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
+        <Button onClick={handleUpdatePin} disabled={loading || pin.length < 4}>
+          {loading ? 'Saving...' : 'Update PIN'}
+        </Button>
+      </ModalFooter>
     </ModalContent>
   );
 }
@@ -164,7 +229,7 @@ function DeleteModal({ customer, onClose, onConfirm }) {
 }
 
 // ── Customer Card ─────────────────────────────────────────────────────────
-function CustomerCard({ customer, onEdit, onDelete }) {
+function CustomerCard({ customer, onEdit, onDelete, onManageAccess }) {
   const isActive = customer.status === 'active';
   const walletBalance = Number(customer.credit_balance || 0);
 
@@ -189,7 +254,7 @@ function CustomerCard({ customer, onEdit, onDelete }) {
             {getInitials(customer.name)}
           </div>
           <div>
-            <h3 className="font-bold text-gray-900 leading-tight">{customer.name}</h3>
+            <h3 className="font-bold text-gray-900 leading-tight">#{customer.id} {customer.name}</h3>
             <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
               <Phone className="w-3 h-3" />
               <span>{customer.phone || 'No phone'}</span>
@@ -208,10 +273,19 @@ function CustomerCard({ customer, onEdit, onDelete }) {
       </div>
 
       {/* Address */}
-      {customer.address && (
-        <div className="flex items-start gap-1.5 mt-3 text-xs text-gray-400">
-          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span className="truncate">{customer.address}</span>
+      {(customer.address || customer.route_area) && (
+        <div className="mt-3 space-y-1">
+          {customer.route_area && (
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-indigo-400 uppercase tracking-tight">
+              <MapPin className="w-3 h-3" />
+              <span>Route: {customer.route_area}</span>
+            </div>
+          )}
+          {customer.address && (
+            <div className="flex items-start gap-1.5 text-xs text-gray-400">
+              <span className="truncate">{customer.address}</span>
+            </div>
+          )}
         </div>
       )}
 
@@ -245,6 +319,13 @@ function CustomerCard({ customer, onEdit, onDelete }) {
         {/* Actions */}
         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
+            onClick={() => onManageAccess(customer)}
+            className="p-2 rounded-xl text-amber-600 hover:bg-amber-50 transition-colors"
+            title="Manage Access"
+          >
+            <Key className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => onEdit(customer)}
             className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 transition-colors"
             title="Edit"
@@ -270,9 +351,11 @@ export default function Customers() {
   const [showModal,       setShowModal]       = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [deleteTarget,    setDeleteTarget]    = useState(null);
+  const [accessTarget,    setAccessTarget]    = useState(null);
   const [searchTerm,      setSearchTerm]      = useState('');
   const [statusFilter,    setStatusFilter]    = useState('all');
   const [shiftFilter,     setShiftFilter]     = useState('all');
+  const [routeFilter,     setRouteFilter]     = useState('all');
 
   const { data: customers = [], isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['customers'],
@@ -296,9 +379,15 @@ export default function Customers() {
         (c.phone || '').includes(searchTerm);
       const matchStatus = statusFilter === 'all' || c.status === statusFilter;
       const matchShift  = shiftFilter  === 'all' || c.shift  === shiftFilter;
-      return matchSearch && matchStatus && matchShift;
+      const matchRoute  = routeFilter  === 'all' || c.route_area === routeFilter;
+      return matchSearch && matchStatus && matchShift && matchRoute;
     });
-  }, [customers, searchTerm, statusFilter, shiftFilter]);
+  }, [customers, searchTerm, statusFilter, shiftFilter, routeFilter]);
+
+  const routes = useMemo(() => {
+    const uniqueRoutes = [...new Set(customers.map(c => c.route_area).filter(Boolean))];
+    return ['all', ...uniqueRoutes];
+  }, [customers]);
 
   const stats = useMemo(() => ({
     total:    customers.length,
@@ -320,28 +409,34 @@ export default function Customers() {
 
   return (
     <div className="pb-28">
-      {/* Sticky header */}
-      <div className="bg-white/80 backdrop-blur-xl border-b border-gray-100 px-4 py-4 sticky top-0 z-30 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold text-gradient">Customers</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{stats.active} active · {stats.total} total</p>
+      {/* Header */}
+      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
+          <div className="pl-12 md:pl-0">
+            <h1 className="text-xl font-black text-slate-900 tracking-tight">Customers</h1>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">{stats.active} Active · {stats.total} Total</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => refetch()} disabled={isFetching} className="btn btn-ghost p-2">
-              <RefreshCw className={cn('w-5 h-5 text-indigo-500', isFetching && 'animate-spin')} />
+            <button 
+              onClick={() => refetch()} 
+              disabled={isFetching} 
+              className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
+            >
+              <RefreshCw className={cn('w-4.5 h-4.5', isFetching && 'animate-spin')} />
             </button>
             <button
               onClick={() => { setEditingCustomer(null); setShowModal(true); }}
-              className="btn btn-primary"
+              className="btn btn-primary h-10 px-4"
             >
-              <Plus className="w-4 h-4 mr-1.5" /> Add New
+              <Plus className="w-4 h-4 mr-1.5" /> 
+              <span className="hidden sm:inline">Add Customer</span>
+              <span className="sm:hidden text-xs">Add</span>
             </button>
           </div>
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 py-5 space-y-5">
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Stats row */}
         <div className="grid grid-cols-3 gap-3">
@@ -389,10 +484,16 @@ export default function Customers() {
             ]}
             className="w-full sm:w-40"
           />
+          <Select
+            value={routeFilter}
+            onChange={(e) => setRouteFilter(e.target.value)}
+            options={routes.map(r => ({ value: r, label: r === 'all' ? '🚩 All Routes' : `📍 ${r}` }))}
+            className="w-full sm:w-40"
+          />
         </div>
 
         {/* Customer count */}
-        {searchTerm || statusFilter !== 'all' || shiftFilter !== 'all' ? (
+        {searchTerm || statusFilter !== 'all' || shiftFilter !== 'all' || routeFilter !== 'all' ? (
           <p className="text-xs text-gray-400">
             Showing {filteredCustomers.length} of {customers.length} customers
           </p>
@@ -413,6 +514,7 @@ export default function Customers() {
                 customer={customer}
                 onEdit={(c) => { setEditingCustomer(c); setShowModal(true); }}
                 onDelete={setDeleteTarget}
+                onManageAccess={setAccessTarget}
               />
             ))}
           </div>
@@ -424,6 +526,11 @@ export default function Customers() {
         isOpen={showModal}
         onClose={() => setShowModal(false)}
         editingCustomer={editingCustomer}
+      />
+      <ManageAccessModal
+        isOpen={!!accessTarget}
+        onClose={() => setAccessTarget(null)}
+        customer={accessTarget}
       />
       <DeleteModal
         customer={deleteTarget}

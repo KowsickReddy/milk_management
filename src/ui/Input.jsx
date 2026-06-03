@@ -22,19 +22,19 @@ export const Input = forwardRef(function Input(
         <input
           ref={ref}
           className={cn(
-            'w-full px-4 py-3 rounded-lg border border-gray-200 bg-white',
-            'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+            'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white',
+            'focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500',
             'transition-all duration-200',
-            'placeholder:text-gray-400',
-            'disabled:bg-gray-50 disabled:cursor-not-allowed',
+            'placeholder:text-slate-400 text-sm font-medium',
+            'disabled:bg-slate-50 disabled:cursor-not-allowed',
             Icon && 'pl-10',
-            error && 'border-red-500 focus:ring-red-500/20 focus:border-red-500',
+            error && 'border-rose-500 focus:ring-rose-500/10 focus:border-rose-500',
             className
           )}
           {...props}
         />
       </div>
-      {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+      {error && <p className="text-xs font-bold text-rose-500 mt-1.5 ml-1">{error}</p>}
     </div>
   );
 });
@@ -47,24 +47,24 @@ export const Textarea = forwardRef(function Textarea(
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
           {label}
         </label>
       )}
       <textarea
         ref={ref}
         className={cn(
-          'w-full px-4 py-3 rounded-lg border border-gray-200 bg-white',
-          'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+          'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white',
+          'focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500',
           'transition-all duration-200',
-          'placeholder:text-gray-400',
+          'placeholder:text-slate-400 text-sm font-medium',
           'min-h-[100px] resize-y',
-          error && 'border-red-500 focus:ring-red-500/20 focus:border-red-500',
+          error && 'border-rose-500 focus:ring-rose-500/10 focus:border-rose-500',
           className
         )}
         {...props}
       />
-      {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+      {error && <p className="text-xs font-bold text-rose-500 mt-1.5 ml-1">{error}</p>}
     </div>
   );
 });
@@ -77,18 +77,18 @@ export const Select = forwardRef(function Select(
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
           {label}
         </label>
       )}
       <select
         ref={ref}
         className={cn(
-          'w-full px-4 py-3 rounded-lg border border-gray-200 bg-white',
-          'focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary',
+          'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white',
+          'focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500',
           'transition-all duration-200',
-          'disabled:bg-gray-50 disabled:cursor-not-allowed',
-          error && 'border-red-500 focus:ring-red-500/20 focus:border-red-500',
+          'disabled:bg-slate-50 disabled:cursor-not-allowed text-sm font-medium',
+          error && 'border-rose-500 focus:ring-rose-500/10 focus:border-rose-500',
           className
         )}
         {...props}

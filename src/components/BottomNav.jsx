@@ -1,20 +1,27 @@
 import React from 'react';
-import { Home, Users, Truck, Receipt, BarChart3 } from 'lucide-react';
+import { Home, Users, Truck, Receipt, BarChart3, MessageSquare } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '../lib/utils';
 
-export default function BottomNav({ activeTab, onTabChange }) {
-  const navItems = [
+export default function BottomNav({ activeTab, onTabChange, user }) {
+  const isCustomer = user?.role === 'customer';
+  
+  const navItems = isCustomer ? [
+    { id: 'dashboard',  icon: Home,          label: 'Home' },
+    { id: 'deliveries', icon: Truck,         label: 'Logs' },
+    { id: 'bills',      icon: Receipt,       label: 'Bills' },
+    { id: 'support',    icon: MessageSquare, label: 'Support' },
+  ] : [
     { id: 'dashboard',  icon: Home,     label: 'Home' },
     { id: 'customers',  icon: Users,    label: 'Clients' },
-    { id: 'deliveries', icon: Truck,    label: 'Deliveries' },
+    { id: 'deliveries', icon: Truck,    label: 'Delivery' },
     { id: 'billing',    icon: Receipt,  label: 'Bills' },
-    { id: 'reports',    icon: BarChart3,label: 'Reports' },
+    { id: 'reports',    icon: BarChart3,label: 'Stats' },
   ];
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 bg-white/90 backdrop-blur-xl border-t border-gray-100 pb-safe z-40 md:hidden shadow-2xl shadow-black/10">
-      <div className="flex justify-around items-center h-16">
+    <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-xl border-t border-slate-100 pb-safe z-40 md:hidden shadow-[0_-8px_30px_rgb(0,0,0,0.04)]">
+      <div className="flex justify-around items-center h-16 max-w-lg mx-auto">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           const Icon = item.icon;
@@ -22,27 +29,26 @@ export default function BottomNav({ activeTab, onTabChange }) {
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={cn(
-                'relative flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors',
-                isActive ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-600'
-              )}
+              className="relative flex flex-col items-center justify-center flex-1 h-full gap-0.5 group"
             >
-              {isActive && (
-                <motion.div
-                  layoutId="bottom-nav-indicator"
-                  className="absolute top-0 w-8 h-0.5 bg-indigo-600 rounded-b-full"
-                  transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                />
-              )}
               <div className={cn(
-                'w-9 h-9 rounded-xl flex items-center justify-center transition-all',
-                isActive ? 'bg-indigo-50' : ''
+                'w-10 h-10 rounded-2xl flex items-center justify-center transition-all duration-300',
+                isActive ? 'bg-indigo-50 text-indigo-600 scale-105 shadow-sm shadow-indigo-100/50' : 'text-slate-400 group-hover:text-slate-600'
               )}>
                 <Icon className={cn('w-5 h-5', isActive ? 'stroke-[2.5px]' : 'stroke-2')} />
               </div>
-              <span className={cn('text-[9px] font-semibold tracking-wide', isActive ? 'text-indigo-600' : 'text-gray-400')}>
+              <span className={cn(
+                'text-[10px] font-bold tracking-tight transition-colors duration-300',
+                isActive ? 'text-indigo-600' : 'text-slate-400 group-hover:text-slate-500'
+              )}>
                 {item.label}
               </span>
+              {isActive && (
+                <motion.div
+                  layoutId="activeTabDot"
+                  className="absolute bottom-1 w-1 h-1 rounded-full bg-indigo-600"
+                />
+              )}
             </button>
           );
         })}
