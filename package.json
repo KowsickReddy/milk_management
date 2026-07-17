@@ -42,6 +42,9 @@
       "react-app/jest"
     ]
   },
+  "overrides": {
+    "enhanced-resolve": "5.15.0"
+  },
   "browserslist": {
     "production": [
       ">0.2%",
