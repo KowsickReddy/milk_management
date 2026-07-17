@@ -28,12 +28,16 @@ function resolveSSLConfig() {
   return false;
 }
 
+// Force IPv4 for cloud providers (IPv6 often unavailable on Render → Supabase)
+const connectionFamily = process.env.DB_FAMILY ? parseInt(process.env.DB_FAMILY, 10) : undefined;
+
 // Build connection config from individual env vars or DATABASE_URL
 const dbConfig = (() => {
   if (process.env.DATABASE_URL) {
     return {
       connectionString: process.env.DATABASE_URL,
       ssl: resolveSSLConfig(),
+      family: connectionFamily || 4,  // Default to IPv4 for cloud connections
       max: 10,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
@@ -47,6 +51,7 @@ const dbConfig = (() => {
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'milk_management_db',
     ssl: resolveSSLConfig(),
+    family: connectionFamily || undefined,  // Let local dev auto-detect
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
