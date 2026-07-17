@@ -41,15 +41,17 @@ const errorHandler = (err, req, res, _next) => {
     response.stack = err.stack;
   }
 
-  // Handle specific known errors
-  if (err.code === 'ER_DUP_ENTRY') {
+  // Handle PostgreSQL-specific error codes
+  // 23505 = unique_violation
+  if (err.code === '23505') {
     return res.status(400).json({
       error: 'Duplicate entry. This record already exists.',
       code: 'DUPLICATE_ENTRY',
     });
   }
 
-  if (err.code === 'ER_NO_REFERENCED_ROW_2' || err.code === 'ER_ROW_IS_REFERENCED_2') {
+  // 23503 = foreign_key_violation
+  if (err.code === '23503') {
     return res.status(400).json({
       error: 'Cannot perform this operation. Related records exist.',
       code: 'FOREIGN_KEY_CONSTRAINT',

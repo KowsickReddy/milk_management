@@ -127,7 +127,21 @@ const DeliveryRepository = {
   async getWithLeaveOverlay({ date, customerId } = {}) {
     const params = [];
     let query = `
-      SELECT d.*,
+      SELECT
+        CAST(d.id AS text) AS id,
+        d.customer_id,
+        d.customer_name,
+        d.date,
+        d.session,
+        d.scheduled_quantity,
+        d.delivered_quantity,
+        d.status,
+        d.extra_milk,
+        d.quantity_overridden,
+        d.delivery_shift,
+        d.is_deleted,
+        d.created_at,
+        d.updated_at,
         (d.status IN ('delivered', 'extra')) AS delivered,
         (d.status = 'leave') AS "leave",
         NULL::int AS leave_request_id,
