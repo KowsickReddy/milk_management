@@ -17,10 +17,12 @@ function resolveSSLConfig() {
   if (process.env.DB_SSL === 'true') return { rejectUnauthorized: false };
   if (process.env.DB_SSL === 'false') return false;
 
-  // Auto-detect from DATABASE_URL
+  // Auto-detect from DATABASE_URL or DB_HOST
   const url = process.env.DATABASE_URL || '';
+  const host = process.env.DB_HOST || '';
   const cloudProviders = ['supabase.co', 'neon.tech', 'railway.app', 'aivencloud.com', 'render.com'];
-  if (cloudProviders.some(provider => url.includes(provider))) {
+  const isCloud = cloudProviders.some(provider => url.includes(provider) || host.includes(provider));
+  if (isCloud) {
     return { rejectUnauthorized: false };
   }
 
