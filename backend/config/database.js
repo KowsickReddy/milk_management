@@ -45,7 +45,7 @@ const dbConfig = (() => {
       connectionTimeoutMillis: 10000,
     };
   }
-  // Fall back to individual params (local dev)
+  // Fall back to individual params (local dev or cloud with DB_* vars)
   return {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -53,7 +53,7 @@ const dbConfig = (() => {
     password: process.env.DB_PASSWORD,
     database: process.env.DB_NAME || 'milk_management_db',
     ssl: resolveSSLConfig(),
-    family: connectionFamily || undefined,  // Let local dev auto-detect
+    family: connectionFamily || 4,  // Always default to IPv4 for consistent cloud connections
     max: 10,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
