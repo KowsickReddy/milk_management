@@ -1,6 +1,11 @@
 // ── Server Entry Point ────────────────────────────────────────────────────
 // Initializes database, runs migrations, seeds, then starts the server
 
+const dns = require('dns');
+// Force Node.js DNS to prefer IPv4 — fixes ENETUNREACH on IPv6 for cloud DBs
+// This affects all subsequent dns.lookup() calls in http, net, pg, etc.
+dns.setDefaultResultOrder('ipv4first');
+
 require('dotenv').config();
 
 const app = require('./app');
