@@ -57,8 +57,19 @@ function buildConfig(ipOverride) {
   const ssl = resolveSSLConfig();
 
   if (process.env.DATABASE_URL) {
+    // If we have a resolved IPv4 address, inject it into the connection string
+    let connStr = process.env.DATABASE_URL;
+    if (ipOverride) {
+      try {
+        const url = new URL(connStr);
+        url.hostname = ipOverride;
+        connStr = url.toString();
+      } catch (e) {
+        // If URL parsing fails, use original string
+      }
+    }
     return {
-      connectionString: process.env.DATABASE_URL,
+      connectionString: connStr,
       ssl,
       max: 10,
       idleTimeoutMillis: 30000,
@@ -81,11 +92,11 @@ function buildConfig(ipOverride) {
 
 /**
  * Get the database connection pool
+ * Throws if called before initializeDatabase() has completed.
  */
 function getPool() {
   if (!pool) {
-    // Fallback: create a pool with hostname (used before initializeDatabase is called)
-    pool = new Pool(buildConfig(null));
+    throw new Error('Database not initialized. Call initializeDatabase() first.');
   }
   return pool;
 }
@@ -223,7 +234,6 @@ module.exports = {
   checkHealth,
   getConnection,
   withTransaction,
-  dbConfig: {},
   createUpdateTriggerFunction,
   applyUpdatedAtTrigger,
 };
