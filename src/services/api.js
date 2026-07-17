@@ -3,33 +3,52 @@ import { toast } from 'react-hot-toast';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
+// ── Token Expiry Guard ─────────────────────────────────────────────────────
+// Prevents a flood of toasts when multiple API calls fail due to same expired token
+let tokenExpiredHandled = false;
+
+function handleTokenExpired() {
+  if (tokenExpiredHandled) return;
+  tokenExpiredHandled = true;
+
+  localStorage.removeItem('token');
+  localStorage.removeItem('user');
+  
+  // Use setTimeout to avoid interrupting the current render cycle
+  setTimeout(() => {
+    window.location.href = '/';
+  }, 100);
+}
+
+// Reset the guard on successful login (called externally)
+export function resetTokenExpiredGuard() {
+  tokenExpiredHandled = false;
+}
+
 // ── Core fetch helper ──────────────────────────────────────────────────────
-async function apiCall(endpoint, options = {}) {
+export async function apiCall(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
   const token = localStorage.getItem('token');
 
+  // Extract suppressToast from options and remove before passing to fetch
+  const { suppressToast, ...fetchOptions } = options;
+
   const config = {
-    method: options.method || 'GET',
-    headers: { 
-      'Content-Type': 'application/json', 
+    method: fetchOptions.method || 'GET',
+    ...fetchOptions,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...options.headers 
+      ...fetchOptions.headers,
     },
-    ...options,
   };
 
-  if (options.body && typeof options.body === 'object') {
-    config.body = JSON.stringify(options.body);
+  if (config.body && typeof config.body === 'object') {
+    config.body = JSON.stringify(config.body);
   }
 
   const response = await fetch(url, config);
-  
-  if (response.status === 401 && token) {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    window.location.href = '/'; 
-    return;
-  }
 
   let data;
   try {
@@ -43,12 +62,24 @@ async function apiCall(endpoint, options = {}) {
     data = { error: 'Failed to parse response' };
   }
 
+  // Handle authentication errors (401 + 403 with TOKEN_INVALID code)
+  // Backend returns 403 with code: 'TOKEN_INVALID' for expired/invalid JWT tokens
+  if (!response.ok && token) {
+    const isAuthError = 
+      response.status === 401 || 
+      (response.status === 403 && data?.code === 'TOKEN_INVALID');
+
+    if (isAuthError) {
+      handleTokenExpired();
+      throw new Error(data?.error || 'Session expired');
+    }
+  }
+
   if (!response.ok) {
-    console.error('--- API ERROR LOG ---');
-    console.error('URL:', url);
-    console.error('Status:', response.status);
-    console.error('Response:', data);
-    toast.error(data?.error || `Server Error: ${response.status}`);
+    // Only show toast if the caller hasn't opted out
+    if (!suppressToast) {
+      toast.error(data?.error || `Server Error: ${response.status}`);
+    }
     throw new Error(data?.error || `API Error: ${response.status}`);
   }
 
@@ -65,6 +96,14 @@ export const customersAPI = {
   updatePin:(id, pin)  => apiCall(`/api/customers/${id}/pin`, { method: 'PATCH', body: { pin } }),
 };
 
+// ── Users (Staff Management) ──────────────────────────────────────────────
+export const usersAPI = {
+  getAll: ()       => apiCall('/api/users'),
+  create: (data)   => apiCall('/api/users', { method: 'POST', body: data }),
+  update: (id, data) => apiCall(`/api/users/${id}`, { method: 'PUT', body: data }),
+  delete: (id)     => apiCall(`/api/users/${id}`, { method: 'DELETE' }),
+};
+
 // ── Admin ──────────────────────────────────────────────────────────────────
 export const adminAPI = {
   getLoginLogs: () => apiCall('/api/admin/login-logs'),
@@ -76,6 +115,7 @@ export const adminAPI = {
 export const deliveriesAPI = {
   getAll:     (params = {}) => apiCall(`/api/deliveries${toQuery(params)}`),
   create:     (data)        => apiCall('/api/deliveries', { method: 'POST', body: data }),
+  createBatch:(data)        => apiCall('/api/deliveries/batch', { method: 'POST', body: data }),
   softDelete: (id)          => apiCall(`/api/deliveries/${id}/soft-delete`, { method: 'PATCH' }),
 };
 
@@ -111,10 +151,18 @@ export const creditsAPI = {
   getUnpaidBillsWithCredit:            () => apiCall('/api/bills/unpaid-with-credit'),
 };
 
+// ── Expenses ──────────────────────────────────────────────────────────────
+export const expensesAPI = {
+  getAll:    (params = {}) => apiCall(`/api/expenses${toQuery(params)}`),
+  create:    (data)        => apiCall('/api/expenses', { method: 'POST', body: data }),
+  update:    (id, data)    => apiCall(`/api/expenses/${id}`, { method: 'PUT', body: data }),
+  delete:    (id)          => apiCall(`/api/expenses/${id}`, { method: 'DELETE' }),
+};
+
 // ── Analytics ──────────────────────────────────────────────────────────────
 export const analyticsAPI = {
   getDashboard: ()             => apiCall('/api/analytics/dashboard'),
-  getEarnings:  (year, month)  => apiCall(`/api/analytics/earnings?year=${year}&month=${month}`),
+  getEarnings:  (year, month)  => apiCall(`/api/analytics/earnings${toQuery({ year, month })}`),
   getStats:     ()             => apiCall('/api/stats'),
   getFarmStats: ()             => apiCall('/api/analytics/farm'),
 };
@@ -136,17 +184,26 @@ export const feedAPI = {
 
 // ── Reports ────────────────────────────────────────────────────────────────
 export const reportsAPI = {
-  getDaily:    (date)               => apiCall(`/api/reports/daily?date=${date}`),
-  getMonthly:  (year, month)        => apiCall(`/api/reports/monthly?year=${year}&month=${month}`),
+  getDaily:    (date)               => apiCall(`/api/reports/daily${toQuery({ date })}`),
+  getMonthly:  (year, month)        => apiCall(`/api/reports/monthly${toQuery({ year, month })}`),
   getCustomer: (id, startDate, endDate) =>
-    apiCall(`/api/reports/customer/${id}?${new URLSearchParams({ startDate, endDate })}`),
+    apiCall(`/api/reports/customer/${id}${toQuery({ startDate, endDate })}`),
+};
+
+// ── Portal (Customer Self-Service) ────────────────────────────────────────
+export const portalAPI = {
+  getDashboard:   (customerId) => apiCall(`/api/portal/dashboard/${customerId}`),
+  getDeliveries:  (customerId) => apiCall(`/api/portal/deliveries/${customerId}`),
+  getBills:       (customerId) => apiCall(`/api/portal/bills/${customerId}`),
+  updateQuantity: (data)        => apiCall('/api/portal/update-quantity', { method: 'POST', body: data }),
+  createComplaint:(data)        => apiCall('/api/portal/complaints', { method: 'POST', body: data }),
 };
 
 // ── Health ─────────────────────────────────────────────────────────────────
 export const healthCheck = async () => {
   try {
     const res = await apiCall('/health');
-    return res.status === 'ok';
+    return String(res.status).toLowerCase() === 'ok';
   } catch {
     return false;
   }
@@ -158,9 +215,21 @@ function toQuery(params) {
   return qs ? `?${qs}` : '';
 }
 
+// ── WebAuthn ─────────────────────────────────────────────────────────────
+export const webauthnAPI = {
+  registerBegin: (data)      => apiCall('/api/auth/webauthn/register/begin', { method: 'POST', body: data }),
+  registerComplete: (data)   => apiCall('/api/auth/webauthn/register/complete', { method: 'POST', body: data }),
+  loginBegin: (data)         => apiCall('/api/auth/webauthn/login/begin', { method: 'POST', body: data }),
+  loginComplete: (data)      => apiCall('/api/auth/webauthn/login/complete', { method: 'POST', body: data }),
+  getCredentials: (userId)   => apiCall(`/api/auth/webauthn/credentials/${userId}`),
+  deleteCredential: (id)     => apiCall(`/api/auth/webauthn/credentials/${id}`, { method: 'DELETE' }),
+};
+
 const api = {
   customers:  customersAPI,
+  users:      usersAPI,
   admin:      adminAPI,
+  portal:     portalAPI,
   cattle:     cattleAPI,
   feed:       feedAPI,
   deliveries: deliveriesAPI,
@@ -168,8 +237,10 @@ const api = {
   bills:      billsAPI,
   payments:   paymentsAPI,
   credits:    creditsAPI,
+  expenses:   expensesAPI,
   analytics:  analyticsAPI,
   reports:    reportsAPI,
+  webauthn:   webauthnAPI,
   healthCheck,
 };
 

@@ -7,22 +7,22 @@ import {
   Calendar, 
   Search, 
   RefreshCw,
-  Clock,
   ChevronRight,
   AlertCircle
 } from 'lucide-react';
 import api from '../services/api';
-import { Card, Button, Input, Select } from '../ui';
+import { Card, Button, ConfirmModal } from '../ui';
 import { toast } from 'react-hot-toast';
-import { cn, formatDate } from '../lib/utils';
+import { cn } from '../lib/utils';
 import { format, isAfter, isBefore, isWithinInterval, startOfDay } from 'date-fns';
 
 export default function ManageLeaves() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState('active'); // 'all', 'active', 'upcoming', 'past'
+  const [cancelTarget, setCancelTarget] = useState(null); // { id, name }
 
-  const { data: leaves = [], isLoading, refetch, isFetching } = useQuery({
+  const { data: leaves = [], isLoading, isError, error: _error, refetch, isFetching } = useQuery({
     queryKey: ['all-leaves'],
     queryFn: () => api.leave.getAll(),
   });
@@ -39,7 +39,7 @@ export default function ManageLeaves() {
 
   const filteredLeaves = leaves.filter(leave => {
     const matchSearch = !searchTerm || 
-      leave.customer_name.toLowerCase().includes(searchTerm.toLowerCase());
+      (leave.customer_name || '').toLowerCase().includes(searchTerm.toLowerCase());
     
     const today = startOfDay(new Date());
     const start = startOfDay(new Date(leave.start_date));
@@ -61,31 +61,38 @@ export default function ManageLeaves() {
   });
 
   const handleCancelLeave = (id, name) => {
-    if (window.confirm(`Are you sure you want to cancel the leave for ${name}? This will resume deliveries immediately.`)) {
-      deleteMutation.mutate(id);
+    setCancelTarget({ id, name });
+  };
+
+  const confirmCancel = () => {
+    if (cancelTarget) {
+      deleteMutation.mutate(cancelTarget.id);
+      setCancelTarget(null);
     }
   };
 
   return (
     <div className="pb-28">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="pl-12 md:pl-0">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Manage Leaves</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Track and cancel customer trips</p>
+      <main className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-50 flex items-center justify-center">
+              <CalendarOff className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Manage Leaves</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Track and cancel customer trips</p>
+            </div>
           </div>
           <button 
             onClick={() => refetch()} 
             disabled={isFetching}
             className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
           >
-            <RefreshCw className={cn("w-4.5 h-4.5", isFetching && "animate-spin")} />
+            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
           </button>
         </div>
-      </div>
-
-      <main className="max-w-5xl mx-auto px-4 py-8 space-y-6">
         {/* Filters */}
         <div className="flex flex-col md:flex-row gap-4">
           <div className="relative flex-1">
@@ -118,7 +125,19 @@ export default function ManageLeaves() {
           </div>
         </div>
 
-        {/* Leaves List */}
+        {/* Error state */}
+        {isError ? (
+          <div className="flex items-center justify-center min-h-[40vh]">
+            <div className="bg-white/40 backdrop-blur-xl rounded-2xl border-2 border-dashed border-red-200 p-8 text-center max-w-md">
+              <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+              <h3 className="text-lg font-bold text-red-700 mb-2">Failed to load leaves</h3>
+              <p className="text-sm text-red-500 mb-4">Something went wrong while fetching data. Please try again.</p>
+              <Button onClick={() => refetch()}>
+                <RefreshCw className="w-4 h-4" /> Retry
+              </Button>
+            </div>
+          </div>
+        ) : (
         <div className="space-y-4">
           {isLoading ? (
             [...Array(3)].map((_, i) => <div key={i} className="skeleton h-28 w-full rounded-3xl" />)
@@ -129,7 +148,7 @@ export default function ManageLeaves() {
             </div>
           ) : (
             filteredLeaves.map((leave) => (
-              <Card key={leave.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-all group border-slate-100 bg-white/60 overflow-hidden relative">
+              <Card key={leave.id} className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:shadow-md transition-all group border-slate-100 bg-white overflow-hidden relative">
                 <div className="flex items-center gap-5">
                   <div className={cn(
                     "w-14 h-14 rounded-3xl flex items-center justify-center transition-all duration-300",
@@ -142,7 +161,7 @@ export default function ManageLeaves() {
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
                         <Calendar className="w-3.5 h-3.5 text-indigo-400" />
-                        {format(new Date(leave.start_date), 'MMM dd')} — {leave.end_date ? format(new Date(leave.end_date), 'MMM dd, yyyy') : <span className="text-amber-600 italic">Unknown Return</span>}
+                        {leave.start_date ? format(new Date(leave.start_date), 'MMM dd') : 'N/A'} — {leave.end_date ? format(new Date(leave.end_date), 'MMM dd, yyyy') : <span className="text-amber-600 italic">Unknown Return</span>}
                       </div>
                       {leave.reason && (
                         <div className="flex items-center gap-1.5 text-xs font-medium text-slate-400">
@@ -156,13 +175,10 @@ export default function ManageLeaves() {
 
                 <div className="flex items-center justify-end gap-3 pt-4 sm:pt-0 border-t sm:border-t-0 border-slate-50">
                   {filterType !== 'past' && (
-                    <button 
-                      onClick={() => handleCancelLeave(leave.id, leave.customer_name)}
-                      className="btn btn-ghost text-rose-500 hover:bg-rose-50 rounded-2xl gap-2 font-black text-[11px] uppercase tracking-widest px-6"
-                    >
+                    <Button variant="ghost" onClick={() => handleCancelLeave(leave.id, leave.customer_name)} className="text-rose-500 hover:bg-rose-50 rounded-2xl gap-2 font-black text-[11px] uppercase tracking-widest px-6">
                       <Trash2 className="w-4 h-4" />
                       Cancel Trip
-                    </button>
+                    </Button>
                   )}
                   <div className="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-300 group-hover:bg-indigo-50 group-hover:text-indigo-400 transition-colors">
                     <ChevronRight className="w-5 h-5" />
@@ -181,7 +197,19 @@ export default function ManageLeaves() {
             ))
           )}
         </div>
+      )}
       </main>
+
+      <ConfirmModal
+        isOpen={!!cancelTarget}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={confirmCancel}
+        title="Cancel Leave?"
+        message={cancelTarget ? `Are you sure you want to cancel the leave for ${cancelTarget.name}? This will resume deliveries immediately.` : ''}
+        confirmText="Yes, Cancel Leave"
+        cancelText="No, Keep Leave"
+        variant="danger"
+      />
     </div>
   );
 }

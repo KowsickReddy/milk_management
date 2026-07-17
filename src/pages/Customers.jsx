@@ -5,7 +5,8 @@ import * as yup from 'yup';
 import { yupResolver } from '@hookform/resolvers/yup';
 import {
   Plus, RefreshCw, Phone, MapPin, Edit2, Trash2,
-  Search, Milk, Wallet, UserCheck, UserX, Users, Key
+  Search, Milk, Wallet, UserCheck, UserX, Users, Key, BarChart3,
+  Calendar, CheckCircle2, Clock, TrendingUp, CalendarOff
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -13,7 +14,7 @@ import {
   Select,
 } from '../ui';
 import { toast } from 'react-hot-toast';
-import { getInitials, formatCurrency, cn } from '../lib/utils';
+import { getInitials, formatCurrency, cn, getMonthName } from '../lib/utils';
 
 // ── Validation schema ─────────────────────────────────────────────────────
 const schema = yup.object().shape({
@@ -35,7 +36,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
 
   const {
     register, handleSubmit, reset,
-    formState: { errors, isValid },
+    formState: { errors },
   } = useForm({
     resolver: yupResolver(schema),
     mode: 'onChange',
@@ -57,7 +58,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
   const mutation = useMutation({
     mutationFn: editingCustomer
       ? (data) => api.customers.update(editingCustomer.id, data)
-      : api.customers.create,
+      : (data) => api.customers.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       toast.success(editingCustomer ? '✅ Customer updated' : '✅ Customer added');
@@ -90,7 +91,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
       <ModalHeader onClose={onClose}>
         {editingCustomer ? '✏️ Edit Customer' : '➕ Add New Customer'}
       </ModalHeader>
-      <form onSubmit={handleSubmit(mutation.mutate)}>
+      <form onSubmit={handleSubmit(mutation.mutate)} noValidate>
         <ModalBody className="space-y-4">
           {field('Full Name', 'name')}
           {field('Phone Number', 'phone', 'tel', { placeholder: '10-digit mobile' })}
@@ -134,7 +135,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
 
         <ModalFooter>
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={!isValid || mutation.isPending}>
+          <Button type="submit" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving...' : editingCustomer ? 'Update Customer' : 'Add Customer'}
           </Button>
         </ModalFooter>
@@ -203,6 +204,293 @@ function ManageAccessModal({ isOpen, onClose, customer }) {
   );
 }
 
+// ── Customer Summary Modal ───────────────────────────────────────────────
+const MONTHS = Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: getMonthName(i + 1) }));
+
+function CustomerSummaryModal({ isOpen, onClose, customer }) {
+  const now = new Date();
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+
+  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+  const lastDay = new Date(year, month, 0).getDate();
+  const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
+
+  const { data: report, isLoading: reportLoading, isError: reportError, refetch: refetchReport } = useQuery({
+    queryKey: ['customer-report', customer?.id, startDate, endDate],
+    queryFn: () => api.reports.getCustomer(customer.id, startDate, endDate),
+    enabled: !!customer,
+  });
+
+  const { data: bills = [], isError: billsError, refetch: refetchBills } = useQuery({
+    queryKey: ['customer-bills', customer?.id],
+    queryFn: () => api.bills.getAll({ customerId: customer.id }),
+    enabled: !!customer,
+  });
+
+  const { data: leaves = [], isError: leavesError, refetch: refetchLeaves } = useQuery({
+    queryKey: ['customer-leaves', customer?.id],
+    queryFn: () => api.leave.getAll({ customerId: customer.id }),
+    enabled: !!customer,
+  });
+
+  if (!isOpen || !customer) return null;
+  const hasError = reportError || billsError || leavesError;
+  if (hasError) {
+    return (
+      <ModalContent isOpen={isOpen} onClose={onClose} size="2xl">
+        <ModalHeader onClose={onClose}>Error Loading Customer Summary</ModalHeader>
+        <ModalBody>
+          <div className="text-center py-8 bg-red-50 rounded-2xl border-2 border-dashed border-red-200">
+            <p className="font-bold text-red-600">Failed to load customer data</p>
+            <div className="flex gap-2 justify-center mt-3">
+              <Button onClick={() => refetchReport()} size="sm">Retry Report</Button>
+              <Button onClick={() => refetchBills()} size="sm">Retry Bills</Button>
+              <Button onClick={() => refetchLeaves()} size="sm">Retry Leaves</Button>
+            </div>
+          </div>
+        </ModalBody>
+      </ModalContent>
+    );
+  }
+  const summary = report?.summary || {};
+  const bill = report?.bill;
+  const totalDaysInPeriod = lastDay;
+
+  // Bill payment status
+  const allBills = bills || [];
+  const totalBilled = allBills.reduce((s, b) => s + Number(b.total_amount || 0), 0);
+  const totalPaid = allBills.reduce((s, b) => s + Number(b.amount_paid || 0), 0);
+  const totalPending = allBills.reduce((s, b) => s + Number(b.balance || 0), 0);
+  // Long leaves calculation  
+  const longLeaves = leaves || [];
+  const totalLongLeaveDays = longLeaves.reduce((s, l) => {
+    const sd = new Date(l.start_date);
+    const ed = new Date(l.end_date);
+    const days = Math.max(0, Math.ceil((ed - sd) / (1000 * 60 * 60 * 24)) + 1);
+    return s + days;
+  }, 0);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="bg-white rounded-3xl w-full max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto shadow-2xl animate-scale-in mx-2 sm:mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="sticky top-0 bg-white z-10 border-b border-gray-100 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold text-sm">
+              {getInitials(customer.name)}
+            </div>
+            <div>
+              <h2 className="font-bold text-gray-900">#{customer.id} {customer.name}</h2>
+              <p className="text-xs text-gray-400">{customer.phone || 'No phone'} · {customer.route_area || 'No route'}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 text-gray-400">&times;</button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Period selector */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <Select
+              value={month}
+              onChange={(e) => setMonth(Number(e.target.value))}
+              options={MONTHS}
+              className="w-28 sm:w-36"
+            />
+            <input
+              type="number"
+              value={year}
+              onChange={(e) => setYear(Number(e.target.value))}
+              className="input w-20 sm:w-24 text-center"
+            />
+            <span className="text-[10px] sm:text-xs text-gray-400">{startDate} → {endDate}</span>
+          </div>
+
+          {reportLoading ? (
+            <div className="space-y-3">
+              {[...Array(4)].map((_, i) => <div key={i} className="skeleton h-16" />)}
+            </div>
+          ) : (
+            <>
+              {/* Delivery summary */}
+              <div>
+                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5">
+                  <Milk className="w-4 h-4 text-indigo-500" /> Delivery Summary
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Active Days', value: `${summary.total_delivered_days || 0} / ${totalDaysInPeriod}`, color: 'stat-card-blue' },
+                    { label: 'Leave Days', value: summary.total_leave_days || 0, color: 'stat-card-amber' },
+                    { label: 'Milk Delivered', value: `${Number(summary.total_milk || 0).toFixed(1)} L`, color: 'stat-card-green' },
+                    { label: 'Extra Milk', value: `${Number(summary.total_extra_milk || 0).toFixed(1)} L`, color: 'stat-card-purple' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className={cn('rounded-2xl p-3 border border-white/50', color)}>
+                      <p className="text-[10px] text-gray-500 font-medium">{label}</p>
+                      <p className="text-lg font-bold text-gray-900 mt-0.5">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Financial summary */}
+              <div>
+                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5">
+                  <Wallet className="w-4 h-4 text-emerald-500" /> Financial Summary
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Gross Amount', value: formatCurrency(summary.gross_amount || 0), color: 'stat-card-blue' },
+                    { label: 'Rate', value: `₹${summary.milk_rate_per_liter || 0}/L`, color: 'stat-card-purple' },
+                    { label: 'Total Billed', value: formatCurrency(totalBilled), color: 'stat-card-green' },
+                    { label: 'Total Paid', value: formatCurrency(totalPaid), color: 'stat-card-amber' },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className={cn('rounded-2xl p-3 border border-white/50', color)}>
+                      <p className="text-[10px] text-gray-500 font-medium">{label}</p>
+                      <p className="text-lg font-bold text-gray-900 mt-0.5">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Current bill status */}
+              {bill && (
+                <div className={cn(
+                  'rounded-2xl p-4 border',
+                  bill.paid ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
+                )}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {bill.paid
+                        ? <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+                        : <Clock className="w-5 h-5 text-amber-600" />
+                      }
+                      <div>
+                        <p className="text-sm font-bold text-gray-900">
+                          {getMonthName(bill.bill_month)} {bill.bill_year} — {bill.paid ? 'Paid' : 'Unpaid'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {bill.total_quantity}L · ₹{bill.total_amount} · Balance: ₹{bill.balance}
+                        </p>
+                      </div>
+                    </div>
+                    <span className={cn('text-lg font-black', bill.paid ? 'text-emerald-600' : 'text-amber-600')}>
+                      ₹{bill.final_amount || bill.total_amount || 0}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* All bills history */}
+              {allBills.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-bold text-gray-700 mb-3">Bill History</h3>
+                  <div className="space-y-2">
+                    {allBills.slice(0, 6).map(b => (
+                      <div key={b.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-xl text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-gray-900">{getMonthName(b.bill_month)} {b.bill_year}</span>
+                          <span className={cn('badge text-[10px]', b.paid ? 'badge-success' : 'badge-warning')}>
+                            {b.paid ? 'Paid' : `₹${b.balance} due`}
+                          </span>
+                        </div>
+                        <span className="font-bold text-gray-900">{formatCurrency(b.total_amount)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Long Leaves / Holidays */}
+              <div>
+                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-amber-500" /> Long Leaves / Holidays
+                </h3>
+                {longLeaves.length === 0 ? (
+                  <p className="text-sm text-gray-400 text-center py-4">No long leaves recorded</p>
+                ) : (
+                  <>
+                    <p className="text-xs text-gray-500 mb-2">
+                      {longLeaves.length} leave period(s) · <strong>{totalLongLeaveDays} total days</strong>
+                    </p>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {longLeaves.map(l => {
+                        const sd = new Date(l.start_date);
+                        const ed = new Date(l.end_date);
+                        const days = Math.max(0, Math.ceil((ed - sd) / (1000 * 60 * 60 * 24)) + 1);
+                        return (
+                          <div key={l.id} className="flex items-center justify-between py-2 px-3 bg-amber-50 rounded-xl text-sm">
+                            <div>
+                              <p className="font-medium text-amber-900">{sd.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} → {ed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                              {l.reason && <p className="text-xs text-amber-600">{l.reason}</p>}
+                            </div>
+                            <span className="badge badge-warning text-[10px]">{days} day{days > 1 ? 's' : ''}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Smart calculations */}
+              <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl p-4 border border-indigo-100">
+                <h3 className="text-sm font-bold text-indigo-800 mb-3 flex items-center gap-1.5">
+                  <TrendingUp className="w-4 h-4" /> Smart Calculations
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {[
+                    {
+                      label: 'Avg Daily Milk',
+                      value: `${(summary.total_delivered_days > 0 ? (Number(summary.total_milk || 0) / summary.total_delivered_days) : 0).toFixed(2)} L`,
+                      icon: Milk,
+                    },
+                    {
+                      label: 'Delivery Rate',
+                      value: `${totalDaysInPeriod > 0 ? Math.round(((summary.total_delivered_days || 0) / totalDaysInPeriod) * 100) : 0}%`,
+                      icon: CheckCircle2,
+                    },
+                    {
+                      label: 'Leave Rate',
+                      value: `${totalDaysInPeriod > 0 ? Math.round((((summary.total_leave_days || 0) + totalLongLeaveDays) / totalDaysInPeriod) * 100) : 0}%`,
+                      icon: Calendar,
+                    },
+                    {
+                      label: 'Est. Monthly Revenue',
+                      value: formatCurrency(Number(customer.daily_milk_quantity || 0) * Number(customer.milk_rate_per_liter || 0) * 30),
+                      icon: TrendingUp,
+                    },
+                    {
+                      label: 'Pending Amount',
+                      value: formatCurrency(totalPending),
+                      icon: Clock,
+                    },
+                    {
+                      label: 'Wallet Balance',
+                      value: formatCurrency(customer.credit_balance || 0),
+                      icon: Wallet,
+                    },
+                  ].map(({ label, value, icon: Icon }) => (
+                    <div key={label} className="bg-white/70 rounded-xl p-3 border border-indigo-100/50">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Icon className="w-3.5 h-3.5 text-indigo-500" />
+                        <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">{label}</p>
+                      </div>
+                      <p className="text-base font-black text-indigo-900">{value}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Delete confirm modal ──────────────────────────────────────────────────
 function DeleteModal({ customer, onClose, onConfirm }) {
   if (!customer) return null;
@@ -220,8 +508,8 @@ function DeleteModal({ customer, onClose, onConfirm }) {
           This will permanently remove <strong>{customer.name}</strong> and all their data. This cannot be undone.
         </p>
         <div className="grid grid-cols-2 gap-3 mt-6">
-          <button onClick={onClose} className="btn btn-outline">Cancel</button>
-          <button onClick={onConfirm} className="btn btn-danger">Yes, Delete</button>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="danger" onClick={onConfirm}>Yes, Delete</Button>
         </div>
       </div>
     </div>
@@ -229,7 +517,7 @@ function DeleteModal({ customer, onClose, onConfirm }) {
 }
 
 // ── Customer Card ─────────────────────────────────────────────────────────
-function CustomerCard({ customer, onEdit, onDelete, onManageAccess }) {
+function CustomerCard({ customer, onLeave, onEdit, onDelete, onManageAccess, onViewSummary }) {
   const isActive = customer.status === 'active';
   const walletBalance = Number(customer.credit_balance || 0);
 
@@ -242,14 +530,14 @@ function CustomerCard({ customer, onEdit, onDelete, onManageAccess }) {
   return (
     <Card className={cn(
       'glass-card p-5 animate-slide-up group hover:-translate-y-0.5 transition-all duration-300',
-      !isActive && 'opacity-70'
+      (!isActive || onLeave) && 'opacity-70'
     )}>
       {/* Header */}
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className={cn(
             'w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-sm shrink-0',
-            isActive ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-500'
+            isActive ? (onLeave ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700') : 'bg-gray-100 text-gray-500'
           )}>
             {getInitials(customer.name)}
           </div>
@@ -262,6 +550,12 @@ function CustomerCard({ customer, onEdit, onDelete, onManageAccess }) {
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
+          {onLeave && (
+            <span className="badge badge-danger">
+              <CalendarOff className="w-3 h-3 mr-1 inline" />
+              On Leave
+            </span>
+          )}
           <span className={cn('badge', isActive ? 'badge-success' : 'badge-neutral')}>
             {isActive ? <UserCheck className="w-3 h-3 mr-1 inline" /> : <UserX className="w-3 h-3 mr-1 inline" />}
             {customer.status}
@@ -317,24 +611,31 @@ function CustomerCard({ customer, onEdit, onDelete, onManageAccess }) {
         </div>
 
         {/* Actions */}
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex gap-1 opacity-60 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+          <button
+            onClick={() => onViewSummary(customer)}
+            className="p-2.5 rounded-xl text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 transition-colors"
+            title="View Summary"
+          >
+            <BarChart3 className="w-4 h-4" />
+          </button>
           <button
             onClick={() => onManageAccess(customer)}
-            className="p-2 rounded-xl text-amber-600 hover:bg-amber-50 transition-colors"
+            className="p-2.5 rounded-xl text-amber-600 hover:bg-amber-50 active:bg-amber-100 transition-colors"
             title="Manage Access"
           >
             <Key className="w-4 h-4" />
           </button>
           <button
             onClick={() => onEdit(customer)}
-            className="p-2 rounded-xl text-indigo-600 hover:bg-indigo-50 transition-colors"
+            className="p-2.5 rounded-xl text-indigo-600 hover:bg-indigo-50 active:bg-indigo-100 transition-colors"
             title="Edit"
           >
             <Edit2 className="w-4 h-4" />
           </button>
           <button
             onClick={() => onDelete(customer)}
-            className="p-2 rounded-xl text-red-500 hover:bg-red-50 transition-colors"
+            className="p-2.5 rounded-xl text-red-500 hover:bg-red-50 active:bg-red-100 transition-colors"
             title="Delete"
           >
             <Trash2 className="w-4 h-4" />
@@ -352,6 +653,7 @@ export default function Customers() {
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [deleteTarget,    setDeleteTarget]    = useState(null);
   const [accessTarget,    setAccessTarget]    = useState(null);
+  const [summaryTarget,   setSummaryTarget]   = useState(null);
   const [searchTerm,      setSearchTerm]      = useState('');
   const [statusFilter,    setStatusFilter]    = useState('all');
   const [shiftFilter,     setShiftFilter]     = useState('all');
@@ -361,6 +663,22 @@ export default function Customers() {
     queryKey: ['customers'],
     queryFn:  () => api.customers.getAll(),
   });
+
+  const { data: allLeaves = [] } = useQuery({
+    queryKey: ['all-leaves'],
+    queryFn:  () => api.leave.getAll(),
+  });
+
+  const onLeaveCustomerIds = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const ids = new Set();
+    allLeaves.forEach(l => {
+      if (l.start_date <= today && (!l.end_date || l.end_date >= today)) {
+        ids.add(l.customer_id);
+      }
+    });
+    return ids;
+  }, [allLeaves]);
 
   const deleteMutation = useMutation({
     mutationFn: (id) => api.customers.delete(id),
@@ -401,20 +719,27 @@ export default function Customers() {
     </div>
   );
   if (isError) return (
-    <div className="p-6 text-center text-red-500">
-      Failed to load customers.
-      <button onClick={() => refetch()} className="btn btn-primary ml-2">Retry</button>
+    <div className="p-6 text-center">
+      <Card className="max-w-md mx-auto p-6 text-center">
+        <p className="font-bold text-rose-600 mb-3">Failed to load customers.</p>
+        <Button onClick={() => refetch()}>Retry</Button>
+      </Card>
     </div>
   );
 
   return (
     <div className="pb-28">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="pl-12 md:pl-0">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Customers</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">{stats.active} Active · {stats.total} Total</p>
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Actions bar */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center">
+              <Users className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Customers</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{stats.active} Active · {stats.total} Total</p>
+            </div>
           </div>
           <div className="flex gap-2">
             <button 
@@ -422,32 +747,29 @@ export default function Customers() {
               disabled={isFetching} 
               className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
             >
-              <RefreshCw className={cn('w-4.5 h-4.5', isFetching && 'animate-spin')} />
+              <RefreshCw className={cn('w-4 h-4', isFetching && 'animate-spin')} />
             </button>
-            <button
+            <Button
               onClick={() => { setEditingCustomer(null); setShowModal(true); }}
-              className="btn btn-primary h-10 px-4"
+              className="h-10"
             >
-              <Plus className="w-4 h-4 mr-1.5" /> 
+              <Plus className="w-4 h-4" /> 
               <span className="hidden sm:inline">Add Customer</span>
               <span className="sm:hidden text-xs">Add</span>
-            </button>
+            </Button>
           </div>
         </div>
-      </div>
-
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {[
             { label: 'Total',    value: stats.total,    color: 'stat-card-blue'  },
             { label: 'Active',   value: stats.active,   color: 'stat-card-green' },
             { label: 'Inactive', value: stats.inactive, color: 'stat-card-amber' },
           ].map(({ label, value, color }) => (
-            <div key={label} className={cn('rounded-2xl p-3 border border-white/50', color)}>
-              <p className="text-xs text-gray-500 font-medium">{label}</p>
-              <p className="text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
+            <div key={label} className={cn('rounded-2xl p-2 sm:p-3 border border-white/50', color)}>
+              <p className="text-[10px] text-gray-500 font-medium">{label}</p>
+              <p className="text-lg sm:text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
             </div>
           ))}
         </div>
@@ -512,9 +834,11 @@ export default function Customers() {
               <CustomerCard
                 key={customer.id}
                 customer={customer}
+                onLeave={onLeaveCustomerIds.has(customer.id)}
                 onEdit={(c) => { setEditingCustomer(c); setShowModal(true); }}
                 onDelete={setDeleteTarget}
                 onManageAccess={setAccessTarget}
+                onViewSummary={setSummaryTarget}
               />
             ))}
           </div>
@@ -531,6 +855,11 @@ export default function Customers() {
         isOpen={!!accessTarget}
         onClose={() => setAccessTarget(null)}
         customer={accessTarget}
+      />
+      <CustomerSummaryModal
+        isOpen={!!summaryTarget}
+        onClose={() => setSummaryTarget(null)}
+        customer={summaryTarget}
       />
       <DeleteModal
         customer={deleteTarget}

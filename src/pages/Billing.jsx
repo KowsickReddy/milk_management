@@ -3,12 +3,12 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Receipt, Calendar, Check, X, RefreshCw, ChevronDown, ChevronUp,
   Wallet, CreditCard, Banknote, TrendingUp, Clock, CheckCircle2,
-  Share2
+  Share2, AlertCircle
 } from 'lucide-react';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
 import { cn, formatCurrency, getMonthName, getInitials } from '../lib/utils';
-import { Card, Input, Select, SearchInput } from '../ui';
+import { Card, Button, Input, Select, SearchInput, ConfirmModal } from '../ui';
 
 
 // ── Payment progress bar ─────────────────────────────────────────────────
@@ -85,7 +85,7 @@ function PaymentLedger({ billId }) {
                 : <Banknote className="w-3.5 h-3.5 text-green-500" />
               }
               <span className="text-gray-600">
-                {new Date(p.payment_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                {p.payment_date ? new Date(p.payment_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'N/A'}
               </span>
               <span className="capitalize badge badge-neutral text-[10px]">{p.payment_method || 'cash'}</span>
             </div>
@@ -103,8 +103,9 @@ function PaymentLedger({ billId }) {
 }
 
 // ── Bill Card ────────────────────────────────────────────────────────────
-function BillCard({ bill, onPay }) {
+function BillCard({ bill, onPay, customers }) {
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [customerGave, setCustomerGave] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [showPayment, setShowPayment] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
@@ -112,29 +113,104 @@ function BillCard({ bill, onPay }) {
   // grossAmount = original bill before wallet deduction
   const grossAmount  = Number(bill.bill_amount || bill.gross_amount || bill.total_amount || 0);
   // totalAmount = what customer actually owes after credit applied
-  const totalAmount  = Number(bill.final_amount ?? bill.total_amount ?? 0);
+  const totalAmount  = Number(bill.amount_paid || 0) + Number(bill.balance || 0) || Number(bill.total_amount || 0);
   const paidAmount   = Number(bill.amount_paid || 0);
   const balance      = Number(bill.balance || 0);
   const creditUsed   = Number(bill.credit_used || 0);
   // walletPaid: full bill covered by credit, no cash payment needed
   const walletPaid   = grossAmount > 0 && totalAmount === 0;
 
+  // Change calculation: if customer gave more than the payment amount
+  const gave = parseFloat(customerGave) || 0;
+  const payAmt = parseFloat(paymentAmount) || 0;
+  const change = gave > payAmt ? gave - payAmt : 0;
+
   const handlePay = () => {
     const amt = parseFloat(paymentAmount);
     if (!amt || amt <= 0) return toast.error('Enter a valid amount');
     onPay(bill.id, bill.customer_id, amt, paymentMethod);
     setPaymentAmount('');
+    setCustomerGave('');
     setShowPayment(false);
   };
 
   const handlePayFull = () => {
     if (balance <= 0) return toast.error('Bill is already paid');
-    onPay(bill.id, bill.customer_id, balance, paymentMethod);
+    setPaymentAmount(String(balance));
+    setCustomerGave(String(balance));
+    setShowPayment(true);
   };
 
   const handleShareWhatsApp = () => {
-    const text = `*Milk Delivery Bill Summary*%0A---------------------------%0A*Customer:* ${bill.customer_name}%0A*Period:* ${getMonthName(bill.bill_month)} ${bill.bill_year}%0A*Quantity:* ${Number(bill.total_quantity).toFixed(2)} L%0A*Gross Bill:* ₹${grossAmount}%0A${creditUsed > 0 ? `*Credit Applied:* −₹${creditUsed}%0A` : ''}*Final Payable:* ₹${totalAmount}%0A*Status:* ${bill.paid ? '✅ FULLY PAID' : `⏳ PENDING: ₹${balance}`}%0A---------------------------%0A_Thank you for your business!_`;
-    window.open(`https://wa.me/91${bill.customer_phone || ''}?text=${text}`, '_blank');
+    const cust = customers?.find(c => c.id === bill.customer_id);
+    const rate = cust?.milk_rate_per_liter || 0;
+    const totalQty = Number(bill.total_quantity || 0);
+    const extraMilk = Number(bill.total_extra_milk || 0);
+    const baseMilk = totalQty - extraMilk;
+    const leaveDays = Number(bill.leave_days || 0);
+    const gross = Number(bill.bill_amount || bill.gross_amount || bill.total_amount || 0);
+
+    const fmtDate = (d) => {
+      if (!d) return '—';
+      return new Date(d + (typeof d === 'string' && d.length === 10 ? 'T00:00:00' : '')).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    };
+
+    const lines = [
+      '🧾 *MILK BILL RECEIPT*',
+      '━━━━━━━━━━━━━━━━━',
+      `*Customer:* ${cust?.name || bill.customer_name || bill.customer_id}`,
+      `*Bill Date:* ${fmtDate(bill.bill_start_date)} – ${fmtDate(bill.bill_end_date)}`,
+      `*Period:* ${getMonthName(bill.bill_month)} ${bill.bill_year}`,
+      `*Rate:* ₹${Number(rate).toFixed(2)}/L`,
+      '━━━━━━━━━━━━━━━━━',
+    ];
+
+    // Parse stored periods
+    let periods = [];
+    try { periods = JSON.parse(bill.periods || '[]'); } catch { periods = []; }
+
+    if (periods.length > 0) {
+      const fmt = (d) => {
+        const dt = new Date(d);
+        return dt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+      };
+      lines.push('*Default Milk Periods:*');
+      periods.forEach((p, i) => {
+        lines.push(`  ${i + 1}. ${fmt(p.start)}–${fmt(p.end)} → ${Number(p.qty).toFixed(1)}L×${p.days}d = ${Number(p.total).toFixed(1)}L`);
+      });
+      const totalScheduled = periods.reduce((s, p) => s + Number(p.total || 0), 0);
+      const totalPeriodDays = periods.reduce((s, p) => s + Number(p.days || 0), 0);
+      lines.push(`  *Total Scheduled:* ${totalScheduled.toFixed(1)}L (${totalPeriodDays}d)`);
+    }
+
+    if (leaveDays > 0) {
+      lines.push('', '*Leaves:*');
+      lines.push(`  *Total Leave:* ${leaveDays}d`);
+    }
+
+    const activeDays = periods.length > 0
+      ? periods.reduce((s, p) => s + Number(p.days || 0), 0) - leaveDays
+      : 0;
+
+    lines.push(
+      '━━━━━━━━━━━━━━━━━',
+      `*Base Milk:* ${baseMilk.toFixed(1)}L${activeDays > 0 ? ` (${activeDays} active days)` : ''}`,
+      `*Extra Milk:* +${extraMilk.toFixed(1)}L`,
+      `*Total Milk:* ${totalQty.toFixed(1)}L`,
+      `*Total Amount:* ₹${gross.toFixed(2)}`,
+    );
+    if (creditUsed > 0) {
+      lines.push(`*Credit Applied:* −₹${creditUsed.toFixed(2)}`);
+    }
+    lines.push(
+      '━━━━━━━━━━━━━━━━━',
+      `*Status:* ${bill.paid ? '✅ FULLY PAID' : `⏳ PENDING: ₹${Number(bill.balance || 0).toFixed(2)}`}`,
+      '━━━━━━━━━━━━━━━━━',
+      '_Generated by Dairy MS-Kowsick Reddy_',
+    );
+    const text = encodeURIComponent(lines.join('\n'));
+    const phone = cust?.phone || '';
+    window.open(`https://wa.me/91${phone}?text=${text}`, '_blank');
   };
 
   return (
@@ -210,7 +286,7 @@ function BillCard({ bill, onPay }) {
       </div>
 
       {/* Extra details row */}
-      <div className="flex gap-3 text-xs text-gray-500">
+      <div className="flex gap-3 text-xs text-gray-500 flex-wrap">
         {Number(bill.leave_days || 0) > 0 && (
           <span className="badge badge-warning">🏖 {bill.leave_days} leave days</span>
         )}
@@ -243,29 +319,46 @@ function BillCard({ bill, onPay }) {
         <div className="pt-3 border-t border-gray-100 space-y-2">
           {!showPayment ? (
             <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={handlePayFull}
-                className="btn btn-success text-xs py-2"
-              >
-                <Check className="w-3.5 h-3.5 mr-1" />
+              <Button variant="success" onClick={handlePayFull} className="text-xs py-2">
+                <Check className="w-3.5 h-3.5" />
                 Pay Full {formatCurrency(balance)}
-              </button>
-              <button
-                onClick={() => setShowPayment(true)}
-                className="btn btn-outline text-xs py-2"
-              >
+              </Button>
+              <Button variant="outline" onClick={() => setShowPayment(true)} className="text-xs py-2">
                 Partial Pay
-              </button>
+              </Button>
             </div>
           ) : (
             <div className="space-y-2 animate-slide-up">
-              <Input
-                type="number"
-                placeholder="Enter amount (₹)"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                className="h-10 text-sm"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Customer Gave (₹)</label>
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={customerGave}
+                    onChange={(e) => setCustomerGave(e.target.value)}
+                    className="h-10 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Payment (₹)</label>
+                  <Input
+                    type="number"
+                    placeholder="Enter amount"
+                    value={paymentAmount}
+                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    className="h-10 text-sm"
+                  />
+                </div>
+              </div>
+              {change > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-xl border border-emerald-200">
+                  <TrendingUp className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-semibold text-emerald-700">
+                    Change to return: <span className="text-sm font-bold">₹{change.toFixed(2)}</span>
+                  </span>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setPaymentMethod('cash')}
@@ -281,12 +374,12 @@ function BillCard({ bill, onPay }) {
                 </button>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={handlePay} className="btn btn-primary text-xs py-2">
-                  <Check className="w-3.5 h-3.5 mr-1" /> Save
-                </button>
-                <button onClick={() => { setShowPayment(false); setPaymentAmount(''); }} className="btn btn-ghost text-xs py-2">
-                  <X className="w-3.5 h-3.5 mr-1" /> Cancel
-                </button>
+                <Button onClick={handlePay} className="text-xs py-2">
+                  <Check className="w-3.5 h-3.5" /> Save
+                </Button>
+                <Button variant="ghost" onClick={() => { setShowPayment(false); setPaymentAmount(''); setCustomerGave(''); }} className="text-xs py-2">
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </Button>
               </div>
             </div>
           )}
@@ -300,15 +393,16 @@ function BillCard({ bill, onPay }) {
 // ── Generate Bill Preview ────────────────────────────────────────────────
 function GeneratedBillPreview({ bill }) {
   if (!bill) return null;
+  const grossAmount = Number(bill.total_amount || bill.bill_amount || bill.gross_amount || 0);
+  const finalAmount = Number(bill.balance ?? bill.total_amount ?? 0);
+  const creditUsed = Math.max(0, grossAmount - finalAmount);
   const items = [
     { label: 'Customer',      value: bill.customer_name },
     { label: 'Period',        value: `${getMonthName(bill.bill_month)} ${bill.bill_year}` },
-    { label: 'Milk Delivered',value: `${Number(bill.total_milk || 0).toFixed(2)} L` },
-    { label: 'Extra Milk',    value: `${Number(bill.extra_milk || bill.total_extra || 0).toFixed(2)} L` },
-    { label: 'Leave Days',    value: `${Number(bill.leave_days || 0)} days` },
-    { label: 'Gross Bill',    value: formatCurrency(bill.bill_amount || bill.gross_amount || 0) },
-    { label: 'Credit Used',   value: formatCurrency(bill.credit_used || 0) },
-    { label: 'Final Payable', value: formatCurrency(bill.final_amount || bill.total_amount || 0) },
+    { label: 'Total Milk',    value: `${Number(bill.total_quantity || 0).toFixed(2)} L` },
+    { label: 'Gross Amount',  value: formatCurrency(grossAmount) },
+    { label: 'Credit Used',   value: creditUsed > 0 ? formatCurrency(creditUsed) : 'None' },
+    { label: 'Net Payable',   value: formatCurrency(finalAmount) },
   ];
 
   return (
@@ -333,24 +427,41 @@ function GeneratedBillPreview({ bill }) {
 export default function Billing() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm]       = useState('');
-  const [filterStatus, setFilterStatus]   = useState('all');
+  const [filterStatus, setFilterStatus]   = useState('unpaid');
   const [generatedBill, setGeneratedBill] = useState(null);
   const [isGeneratingBatch, setIsGeneratingBatch] = useState(false);
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
   const [billForm, setBillForm] = useState({
     customer_id: '',
     month: new Date().getMonth() + 1,
     year:  new Date().getFullYear(),
   });
 
-  const { data: bills = [], isLoading, refetch, isFetching } = useQuery({
+  const { data: bills = [], isLoading, isError: billsIsError, error: _billsError, refetch, isFetching } = useQuery({
     queryKey: ['bills'],
     queryFn:  () => api.bills.getAll(),
   });
 
-  const { data: customers = [] } = useQuery({
+  const { data: customers = [], isError: custIsError, error: _custError, refetch: refetchCustomers } = useQuery({
     queryKey: ['customers'],
-    queryFn:  api.customers.getAll,
+    queryFn:  () => api.customers.getAll(),
   });
+
+  const { data: allLeaves = [] } = useQuery({
+    queryKey: ['all-leaves'],
+    queryFn:  () => api.leave.getAll(),
+  });
+
+  const onLeaveCustomerIds = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const ids = new Set();
+    allLeaves.forEach(l => {
+      if (l.start_date <= today && (!l.end_date || l.end_date >= today)) {
+        ids.add(l.customer_id);
+      }
+    });
+    return ids;
+  }, [allLeaves]);
 
   const paymentMutation = useMutation({
     mutationFn: (data) => api.payments.create(data),
@@ -381,11 +492,19 @@ export default function Billing() {
   });
 
   const handlePay = (billId, customerId, amount, method = 'cash') => {
+    const bill = bills.find(b => b.id === billId);
+    const currentBalance = Number(bill?.balance || 0);
+    const changeAmount = amount - currentBalance;
+
     paymentMutation.mutate({
       bill_id:        billId,
       customer_id:    customerId,
       amount_paid:    Number(amount),
+      change_given:   changeAmount > 0 ? changeAmount : 0,
       payment_method: method,
+      is_partial:     amount < currentBalance,
+      is_full_with_change: changeAmount > 0,
+      change_amount:  changeAmount > 0 ? changeAmount : 0,
     });
   };
 
@@ -399,8 +518,7 @@ export default function Billing() {
   };
 
   const handleGenerateBatch = async () => {
-    if (!window.confirm(`Generate bills for ALL active customers for ${getMonthName(billForm.month)} ${billForm.year}?`)) return;
-    
+    setShowBatchConfirm(false);
     setIsGeneratingBatch(true);
     try {
       const res = await api.bills.generateBatch({
@@ -433,6 +551,21 @@ export default function Billing() {
     pending:  bills.reduce((s, b) => s + Number(b.balance || 0), 0),
   }), [bills]);
 
+  if (billsIsError || custIsError) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md p-8 text-center">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+          <h3 className="text-lg font-bold text-red-700 mb-2">Failed to load billing data</h3>
+          <p className="text-sm text-red-500 mb-4">Something went wrong while fetching data. Please try again.</p>
+          <Button onClick={() => { refetch(); refetchCustomers(); }}>
+            <RefreshCw className="w-4 h-4" /> Retry
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   if (isLoading) return (
     <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
       {[...Array(6)].map((_, i) => <div key={i} className="skeleton h-52" />)}
@@ -441,24 +574,26 @@ export default function Billing() {
 
   return (
     <div className="pb-28">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="pl-12 md:pl-0">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Invoices</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Manage Payments & Dues</p>
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center">
+              <Receipt className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Invoices</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Manage Payments & Dues</p>
+            </div>
           </div>
           <button 
             onClick={() => refetch()} 
             disabled={isFetching} 
             className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
           >
-            <RefreshCw className={cn('w-4.5 h-4.5', isFetching && 'animate-spin')} />
+            <RefreshCw className={cn('w-4 h-4', isFetching && 'animate-spin')} />
           </button>
         </div>
-      </div>
-
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Stats row */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -482,21 +617,21 @@ export default function Billing() {
               <h2 className="font-bold text-gray-900">Generate Bills</h2>
               <p className="text-xs text-gray-400 mt-0.5">Leave days are excluded. Wallet credit auto-applied.</p>
             </div>
-            <button 
-              onClick={handleGenerateBatch}
+            <Button 
+              onClick={() => setShowBatchConfirm(true)}
               disabled={isGeneratingBatch}
-              className="btn btn-outline border-indigo-200 text-indigo-600 text-xs py-2 h-auto"
+              variant="outline" className="border-indigo-200 text-indigo-600 text-xs py-2 h-auto"
             >
               {isGeneratingBatch ? '⏳ Processing...' : '⚡ Generate All for Month'}
-            </button>
+            </Button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <Select
-              value={billForm.customer_id}
+              value={String(billForm.customer_id)}
               onChange={(e) => { setBillForm(p => ({ ...p, customer_id: e.target.value })); setGeneratedBill(null); }}
               options={[
                 { value: '', label: 'Select customer' },
-                ...customers.filter(c => c.status === 'active').map(c => ({ value: c.id, label: `#${c.id} ${c.name} - ${c.phone}` })),
+                ...customers.filter(c => c.status === 'active').map(c => ({ value: String(c.id), label: onLeaveCustomerIds.has(c.id) ? `🏖️ #${c.id} ${c.name} - ${c.phone} (On Leave)` : `#${c.id} ${c.name} - ${c.phone}` })),
               ]}
             />
             <Select
@@ -510,13 +645,12 @@ export default function Billing() {
               onChange={(e) => setBillForm(p => ({ ...p, year: e.target.value }))}
               placeholder="Year"
             />
-            <button
+            <Button
               onClick={handleGenerateBill}
               disabled={generateBillMutation.isPending}
-              className="btn btn-primary"
             >
               {generateBillMutation.isPending ? '⏳ Generating...' : '⚡ Generate Bill'}
-            </button>
+            </Button>
           </div>
           <GeneratedBillPreview bill={generatedBill} />
         </Card>
@@ -552,11 +686,22 @@ export default function Billing() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredBills.map((bill) => (
-              <BillCard key={bill.id} bill={bill} onPay={handlePay} />
+              <BillCard key={bill.id} bill={bill} onPay={handlePay} customers={customers} />
             ))}
           </div>
         )}
       </main>
+
+      <ConfirmModal
+        isOpen={showBatchConfirm}
+        onClose={() => setShowBatchConfirm(false)}
+        onConfirm={handleGenerateBatch}
+        title="Generate Bills for All?"
+        message={`Generate bills for ALL active customers for ${getMonthName(billForm.month)} ${billForm.year}? This action may create or update bills.`}
+        confirmText="Yes, Generate All"
+        cancelText="Cancel"
+        variant="primary"
+      />
     </div>
   );
 }

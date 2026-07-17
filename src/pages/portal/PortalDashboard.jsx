@@ -1,31 +1,37 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Input } from '../../ui';
-import { Milk, Receipt, AlertCircle, Calendar, ArrowRight, TrendingUp } from 'lucide-react';
+import { Milk, Receipt, AlertCircle, Calendar, TrendingUp } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import api from '../../services/api';
 
 export default function PortalDashboard({ user }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [newQuantity, setNewQuantity] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    fetchDashboard();
-  }, []);
-
-  const fetchDashboard = async () => {
-    try {
-      const res = await fetch(`http://localhost:5000/api/portal/dashboard/${user.id}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error);
-      setData(json);
-      setNewQuantity(json.todayDelivery?.delivered_quantity || json.customer.daily_milk_quantity);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const json = await api.portal.getDashboard(user.id);
+        if (cancelled) return;
+        setData(json);
+        setNewQuantity(json.todayDelivery?.delivered_quantity || json.customer?.daily_milk_quantity || 0);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err.message);
+        toast.error(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user.id, retry]);
 
   const handleUpdateQuantity = async () => {
     if (!newQuantity || isNaN(newQuantity) || parseFloat(newQuantity) < 0) {
@@ -34,19 +40,13 @@ export default function PortalDashboard({ user }) {
     }
     setUpdating(true);
     try {
-      const res = await fetch('http://localhost:5000/api/portal/update-quantity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: user.id,
-          date: new Date().toISOString().split('T')[0],
-          quantity: parseFloat(newQuantity),
-          session: user.shift
-        })
+      await api.portal.updateQuantity({
+        customer_id: user.id,
+        date: new Date().toISOString().split('T')[0],
+        quantity: parseFloat(newQuantity),
+        session: user.shift
       });
-      if (!res.ok) throw new Error("Failed to update quantity");
       toast.success("Quantity updated successfully! Admin notified.");
-      fetchDashboard();
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -54,21 +54,38 @@ export default function PortalDashboard({ user }) {
     }
   };
 
-  if (loading) return <div className="p-8">Loading your dashboard...</div>;
+  if (loading) return (
+    <div className="p-8 flex items-center justify-center min-h-[40vh]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+        <p className="text-sm text-slate-400 font-medium">Loading dashboard...</p>
+      </div>
+    </div>
+  );
+  if (error) return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      <Card className="max-w-md mx-auto p-8 text-center">
+        <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+        <p className="font-bold text-red-600">Failed to load dashboard</p>
+        <p className="text-gray-400 text-sm mt-1 mb-4">{error}</p>
+        <Button onClick={() => { setError(null); setRetry(r => r + 1); }}>Retry</Button>
+      </Card>
+    </div>
+  );
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-4xl mx-auto">
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Hello, {user.full_name}! 👋</h1>
-          <p className="text-gray-500">Welcome to your milk delivery dashboard.</p>
+          <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Hello, {user.name || user.full_name || 'Customer'}!</h1>
+          <p className="text-sm text-slate-500">Welcome to your milk delivery dashboard.</p>
         </div>
         <div className="bg-indigo-50 px-4 py-2 rounded-2xl border border-indigo-100">
-          <p className="text-xs text-indigo-600 font-bold uppercase tracking-wider">Current Balance</p>
+          <p className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider">Current Balance</p>
           <p className="text-xl font-black text-indigo-700">₹{data?.totalDue || 0}</p>
         </div>
-      </header>
+      </div>
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -116,19 +133,19 @@ export default function PortalDashboard({ user }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-white/5 p-3 rounded-xl border border-white/10">
               <p className="text-[10px] text-white/40 font-bold uppercase mb-1">Base Plan</p>
-              <p className="font-bold">{data?.customer.daily_milk_quantity}L / Day</p>
+              <p className="font-bold">{data?.customer?.daily_milk_quantity || 0}L / Day</p>
             </div>
             <div className="bg-white/5 p-3 rounded-xl border border-white/10">
               <p className="text-[10px] text-white/40 font-bold uppercase mb-1">Shift</p>
-              <p className="font-bold capitalize">{data?.customer.shift}</p>
+              <p className="font-bold capitalize">{data?.customer?.shift || 'N/A'}</p>
             </div>
             <div className="bg-white/5 p-3 rounded-xl border border-white/10">
               <p className="text-[10px] text-white/40 font-bold uppercase mb-1">Customer Type</p>
-              <p className="font-bold capitalize">{data?.customer.customer_type}</p>
+              <p className="font-bold capitalize">{data?.customer?.customer_type || 'N/A'}</p>
             </div>
             <div className="bg-white/5 p-3 rounded-xl border border-white/10">
               <p className="text-[10px] text-white/40 font-bold uppercase mb-1">Wallet Credit</p>
-              <p className="font-bold text-green-400">₹{data?.customer.credit_balance || 0}</p>
+              <p className="font-bold text-green-400">₹{data?.customer?.credit_balance || 0}</p>
             </div>
           </div>
         </Card>

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { customersAPI, deliveriesAPI, billsAPI, paymentsAPI, creditsAPI } from '../services/api';
-import { showToast } from '../components/Toast';
+import { toast } from 'react-hot-toast';
 
 // Initial state
 const initialState = {
@@ -141,21 +141,27 @@ const AppContext = createContext(null);
 // Debounce helper
 function useDebounceSave(state) {
   const timeoutRef = useRef(null);
+  const prevRef = useRef(state);
 
   useEffect(() => {
-    // Clear existing timeout
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
     }
 
-    // Save to localStorage after 1 second delay
     timeoutRef.current = setTimeout(() => {
       try {
-        localStorage.setItem('milk_customers', JSON.stringify(state.customers));
-        localStorage.setItem('milk_deliveries', JSON.stringify(state.deliveries));
-        localStorage.setItem('milk_bills', JSON.stringify(state.bills));
-        localStorage.setItem('milk_payments', JSON.stringify(state.payments));
-        localStorage.setItem('milk_credits', JSON.stringify(state.credits));
+        const prev = prevRef.current;
+        const slices = [
+          ['milk_customers',  state.customers,  prev.customers],
+          ['milk_deliveries', state.deliveries, prev.deliveries],
+          ['milk_bills',      state.bills,      prev.bills],
+          ['milk_payments',   state.payments,   prev.payments],
+          ['milk_credits',    state.credits,    prev.credits],
+        ];
+        slices.forEach(([key, cur, prevVal]) => {
+          if (cur !== prevVal) localStorage.setItem(key, JSON.stringify(cur));
+        });
+        prevRef.current = state;
       } catch (error) {
         console.error('Failed to save to localStorage:', error);
       }
@@ -173,10 +179,12 @@ function useDebounceSave(state) {
 function sanitizeString(str) {
   if (!str) return '';
   return String(str)
+    .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#x27;');
+    .replace(/'/g, '&#x27;')
+    .replace(/`/g, '&#x60;');
 }
 
 // Provider component
@@ -239,7 +247,8 @@ export function AppProvider({ children }) {
         // Load from API instead of localStorage
         await loadFromAPI();
       }
-    } catch {
+    } catch (err) {
+      console.error('API check failed:', err);
       dispatch({ type: ACTIONS.SET_API_AVAILABLE, payload: false });
     }
   }, [loadFromAPI]);
@@ -266,7 +275,7 @@ export function AppProvider({ children }) {
       if (state.apiAvailable) {
         // Save to API
         newCustomer = await customersAPI.create(sanitizedCustomer);
-        showToast('Customer added successfully', 'success');
+        toast.success('Customer added successfully');
       } else {
         // Fallback to localStorage
         newCustomer = {
@@ -280,7 +289,7 @@ export function AppProvider({ children }) {
       dispatch({ type: ACTIONS.ADD_CUSTOMER, payload: newCustomer });
       return newCustomer;
     } catch (error) {
-      showToast('Failed to add customer: ' + error.message, 'error');
+      toast.error('Failed to add customer: ' + error.message);
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       return null;
     } finally {
@@ -301,7 +310,7 @@ export function AppProvider({ children }) {
       let updated;
       if (state.apiAvailable) {
         updated = await customersAPI.update(customer.id, sanitizedCustomer);
-        showToast('Customer updated successfully', 'success');
+        toast.success('Customer updated successfully');
       } else {
         updated = { ...sanitizedCustomer, updated_at: new Date().toISOString() };
       }
@@ -309,7 +318,7 @@ export function AppProvider({ children }) {
       dispatch({ type: ACTIONS.UPDATE_CUSTOMER, payload: updated });
       return updated;
     } catch (error) {
-      showToast('Failed to update customer: ' + error.message, 'error');
+      toast.error('Failed to update customer: ' + error.message);
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       return null;
     } finally {
@@ -322,12 +331,12 @@ export function AppProvider({ children }) {
     try {
       if (state.apiAvailable) {
         await customersAPI.delete(id);
-        showToast('Customer deleted successfully', 'success');
+        toast.success('Customer deleted successfully');
       }
       // Only delete from local state after API succeeds
       dispatch({ type: ACTIONS.DELETE_CUSTOMER, payload: id });
     } catch (error) {
-      showToast('Failed to delete customer: ' + error.message, 'error');
+      toast.error('Failed to delete customer: ' + error.message);
       dispatch({ type: ACTIONS.SET_ERROR, payload: error.message });
       // Don't delete from local state if API fails
     } finally {
@@ -338,12 +347,16 @@ export function AppProvider({ children }) {
   // Delivery actions
   const addDelivery = useCallback(async (delivery) => {
     try {
+      const sanitizedDelivery = {
+        ...delivery,
+        customer_name: sanitizeString(delivery.customer_name),
+      };
       let newDelivery;
       if (state.apiAvailable) {
-        newDelivery = await deliveriesAPI.create(delivery);
+        newDelivery = await deliveriesAPI.create(sanitizedDelivery);
       } else {
         newDelivery = {
-          ...delivery,
+          ...sanitizedDelivery,
           id: Date.now(),
           created_at: new Date().toISOString(),
         };
@@ -352,7 +365,7 @@ export function AppProvider({ children }) {
       dispatch({ type: ACTIONS.ADD_DELIVERY, payload: newDelivery });
       return newDelivery;
     } catch (error) {
-      showToast('Failed to add delivery: ' + error.message, 'error');
+      toast.error('Failed to add delivery: ' + error.message);
       return null;
     }
   }, [state.apiAvailable]);
@@ -371,7 +384,7 @@ export function AppProvider({ children }) {
 
     const deliveryData = {
       customer_id: customerId,
-      customer_name: customer.name,
+      customer_name: sanitizeString(customer.name),
       date,
       session: customer.shift || 'morning',
       scheduled_quantity: customer.default_milk_quantity || customer.daily_milk_quantity,
@@ -396,6 +409,7 @@ export function AppProvider({ children }) {
           await deliveriesAPI.create(deliveryData);
         } catch (error) {
           console.error('Failed to sync delivery:', error);
+          toast.error('Delivery saved locally, sync failed');
         }
       }
     } else {
@@ -413,7 +427,7 @@ export function AppProvider({ children }) {
 
     const deliveryData = {
       customer_id: customerId,
-      customer_name: customer.name,
+      customer_name: sanitizeString(customer.name),
       date,
       session: customer.shift || 'morning',
       scheduled_quantity: customer.default_milk_quantity || customer.daily_milk_quantity,
@@ -438,6 +452,7 @@ export function AppProvider({ children }) {
           await deliveriesAPI.create(deliveryData);
         } catch (error) {
           console.error('Failed to sync delivery:', error);
+          toast.error('Leave saved locally, sync failed');
         }
       }
     } else {
@@ -473,7 +488,7 @@ export function AppProvider({ children }) {
       const newBill = {
         id: state.apiAvailable ? undefined : Date.now(),
         customer_id: customer.id,
-        customer_name: customer.name,
+        customer_name: sanitizeString(customer.name),
         bill_month: start.getMonth() + 1,
         bill_year: start.getFullYear(),
         bill_start_date: start.toISOString().split('T')[0],
@@ -490,7 +505,7 @@ export function AppProvider({ children }) {
       let createdBill;
       if (state.apiAvailable) {
         createdBill = await billsAPI.create(newBill);
-        showToast('Bill generated successfully', 'success');
+        toast.success('Bill generated successfully');
       } else {
         createdBill = { ...newBill, id: Date.now() };
       }
@@ -498,7 +513,7 @@ export function AppProvider({ children }) {
       dispatch({ type: ACTIONS.ADD_BILL, payload: createdBill });
       return createdBill;
     } catch (error) {
-      showToast('Failed to generate bill: ' + error.message, 'error');
+      toast.error('Failed to generate bill: ' + error.message);
       return null;
     } finally {
       dispatch({ type: ACTIONS.SET_LOADING, payload: false });
@@ -510,7 +525,7 @@ export function AppProvider({ children }) {
     try {
       const bill = state.bills.find(b => b.id === billId);
       if (!bill) {
-        showToast('Bill not found', 'error');
+        toast.error('Bill not found');
         return null;
       }
 
@@ -580,10 +595,10 @@ export function AppProvider({ children }) {
       }
 
       dispatch({ type: ACTIONS.ADD_PAYMENT, payload: result });
-      showToast('Payment recorded successfully!', 'success');
+      toast.success('Payment recorded successfully!');
       return { change: changeAmount > 0 ? changeAmount : 0 };
     } catch (error) {
-      showToast('Failed to record payment: ' + error.message, 'error');
+      toast.error('Failed to record payment: ' + error.message);
       return null;
     } finally {
       dispatch({ type: ACTIONS.SET_LOADING, payload: false });
@@ -596,7 +611,7 @@ export function AppProvider({ children }) {
     try {
       if (state.apiAvailable) {
         const result = await creditsAPI.apply({ customer_id: customerId, bill_id: billId, amount });
-        showToast(result.message, 'success');
+        toast.success(result.message);
         
         // Reload bills to reflect changes
         const updatedBills = await billsAPI.getAll();
@@ -604,11 +619,11 @@ export function AppProvider({ children }) {
         
         return result;
       } else {
-        showToast('Credit system requires backend API', 'warning');
+        toast('Credit system requires backend API', { icon: 'ℹ️' });
         return null;
       }
     } catch (error) {
-      showToast('Failed to apply credit: ' + error.message, 'error');
+      toast.error('Failed to apply credit: ' + error.message);
       return null;
     } finally {
       dispatch({ type: ACTIONS.SET_LOADING, payload: false });

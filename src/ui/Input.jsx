@@ -1,45 +1,81 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useState } from 'react';
+import { Eye, EyeOff, Search } from 'lucide-react';
 import { cn } from '../lib/utils';
 
-// Input
 export const Input = forwardRef(function Input(
-  { className, label, error, icon: Icon, ...props },
+  { className, label, error, icon: Icon, floating = false, ...props },
   ref
 ) {
+  const [focused, setFocused] = useState(false);
+  const hasValue = props.value || props.defaultValue || props.placeholder;
+
   return (
     <div className="w-full">
-      {label && (
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+      {label && !floating && (
+        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 ml-1">
           {label}
         </label>
       )}
       <div className="relative">
         {Icon && (
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-            <Icon className="w-5 h-5" />
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+            <Icon className="w-4 h-4" />
           </div>
         )}
         <input
           ref={ref}
+          onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
+          onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
           className={cn(
             'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white',
-            'focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500',
             'transition-all duration-200',
-            'placeholder:text-slate-400 text-sm font-medium',
-            'disabled:bg-slate-50 disabled:cursor-not-allowed',
+            'placeholder:text-slate-400 text-sm font-medium text-slate-900',
+            'disabled:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400',
+            'hover:border-slate-300',
+            'focus:outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand',
             Icon && 'pl-10',
-            error && 'border-rose-500 focus:ring-rose-500/10 focus:border-rose-500',
+            error && 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/10',
+            floating && label && (focused || hasValue) && 'pt-5 pb-2',
             className
           )}
           {...props}
         />
+        {floating && label && (
+          <label className={cn(
+            'absolute left-4 transition-all duration-200 pointer-events-none',
+            'text-slate-400 font-medium',
+            Icon && 'left-10',
+            (focused || hasValue)
+              ? 'text-[10px] -translate-y-1 top-2'
+              : 'text-sm top-1/2 -translate-y-1/2',
+            focused && 'text-brand'
+          )}>
+            {label}
+          </label>
+        )}
       </div>
-      {error && <p className="text-xs font-bold text-rose-500 mt-1.5 ml-1">{error}</p>}
+      {error && <p className="text-xs font-semibold text-rose-500 mt-1.5 ml-1">{error}</p>}
     </div>
   );
 });
 
-// Textarea
+export const PasswordInput = forwardRef(function PasswordInput(props, ref) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="relative">
+      <Input ref={ref} type={show ? 'text' : 'password'} {...props} />
+      <button
+        type="button"
+        onClick={() => setShow(!show)}
+        className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors p-1"
+        tabIndex={-1}
+      >
+        {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+      </button>
+    </div>
+  );
+});
+
 export const Textarea = forwardRef(function Textarea(
   { className, label, error, ...props },
   ref
@@ -55,21 +91,21 @@ export const Textarea = forwardRef(function Textarea(
         ref={ref}
         className={cn(
           'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white',
-          'focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500',
           'transition-all duration-200',
-          'placeholder:text-slate-400 text-sm font-medium',
+          'placeholder:text-slate-400 text-sm font-medium text-slate-900',
           'min-h-[100px] resize-y',
-          error && 'border-rose-500 focus:ring-rose-500/10 focus:border-rose-500',
+          'hover:border-slate-300',
+          'focus:outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand',
+          error && 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/10',
           className
         )}
         {...props}
       />
-      {error && <p className="text-xs font-bold text-rose-500 mt-1.5 ml-1">{error}</p>}
+      {error && <p className="text-xs font-semibold text-rose-500 mt-1.5 ml-1">{error}</p>}
     </div>
   );
 });
 
-// Select
 export const Select = forwardRef(function Select(
   { className, label, error, options, placeholder, ...props },
   ref
@@ -84,11 +120,13 @@ export const Select = forwardRef(function Select(
       <select
         ref={ref}
         className={cn(
-          'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white',
-          'focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500',
+          'w-full px-4 py-3 rounded-2xl border border-slate-200 bg-white appearance-none cursor-pointer',
           'transition-all duration-200',
-          'disabled:bg-slate-50 disabled:cursor-not-allowed text-sm font-medium',
-          error && 'border-rose-500 focus:ring-rose-500/10 focus:border-rose-500',
+          'text-sm font-medium text-slate-900',
+          'disabled:bg-slate-50 disabled:cursor-not-allowed',
+          'hover:border-slate-300',
+          'focus:outline-none focus:ring-4 focus:ring-brand/10 focus:border-brand',
+          error && 'border-rose-300 focus:border-rose-500 focus:ring-rose-500/10',
           className
         )}
         {...props}
@@ -104,17 +142,16 @@ export const Select = forwardRef(function Select(
           </option>
         ))}
       </select>
-      {error && <p className="text-sm text-red-500 mt-1">{error}</p>}
+      {error && <p className="text-xs font-semibold text-rose-500 mt-1.5 ml-1">{error}</p>}
     </div>
   );
 });
 
-// Search Input
 export function SearchInput({ className, ...props }) {
   return (
     <Input
       icon={SearchIcon}
-      className={className}
+      className={cn('pl-10', className)}
       placeholder="Search..."
       {...props}
     />
@@ -122,16 +159,7 @@ export function SearchInput({ className, ...props }) {
 }
 
 function SearchIcon(props) {
-  return (
-    <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" {...props}>
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-      />
-    </svg>
-  );
+  return <Search className="w-4 h-4" {...props} />;
 }
 
 export default Input;

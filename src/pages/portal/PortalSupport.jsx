@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { Card, Button, Input } from '../../ui';
-import { MessageSquare, Send, CheckCircle } from 'lucide-react';
+import { MessageSquare, Send, CheckCircle, Clock } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import api from '../../services/api';
+
+const SUPPORT_PHONE = process.env.REACT_APP_SUPPORT_PHONE || '+91 9876543210';
 
 export default function PortalSupport({ user }) {
   const [subject, setSubject] = useState('');
@@ -17,16 +20,11 @@ export default function PortalSupport({ user }) {
     }
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:5000/api/portal/complaints', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customer_id: user.id,
-          subject,
-          message
-        })
+      await api.portal.createComplaint({
+        customer_id: user.id,
+        subject,
+        message
       });
-      if (!res.ok) throw new Error("Failed to send message");
       setSubmitted(true);
       toast.success("Complaint registered successfully!");
     } catch (err) {
@@ -38,13 +36,13 @@ export default function PortalSupport({ user }) {
 
   if (submitted) {
     return (
-      <div className="p-8 flex items-center justify-center min-h-[60vh]">
-        <Card className="max-w-md w-full p-8 text-center border-2 border-green-50 shadow-xl shadow-green-50">
-          <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6 text-green-600">
+      <div className="flex items-center justify-center min-h-[60vh] p-4">
+        <Card className="max-w-md w-full p-8 text-center border-2 border-emerald-50 shadow-xl shadow-emerald-50">
+          <div className="w-16 h-16 rounded-2xl bg-emerald-100 flex items-center justify-center mx-auto mb-6 text-emerald-600">
             <CheckCircle className="w-8 h-8" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900 mb-2">Message Sent!</h2>
-          <p className="text-gray-500 mb-8">Your complaint has been registered. Our team will look into it shortly.</p>
+          <h2 className="text-xl font-bold text-slate-900 mb-2">Message Sent!</h2>
+          <p className="text-slate-500 mb-8">Your complaint has been registered. Our team will look into it shortly.</p>
           <Button onClick={() => { setSubmitted(false); setSubject(''); setMessage(''); }} className="w-full">
             Send another message
           </Button>
@@ -54,11 +52,11 @@ export default function PortalSupport({ user }) {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-6 max-w-2xl mx-auto">
-      <header>
-        <h1 className="text-2xl font-bold text-gray-900">Support & Help</h1>
-        <p className="text-gray-500">Have an issue with your delivery? Let us know.</p>
-      </header>
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Support & Help</h1>
+        <p className="text-sm text-slate-500">Have an issue with your delivery? Let us know.</p>
+      </div>
 
       <Card className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -97,7 +95,7 @@ export default function PortalSupport({ user }) {
           </div>
           <div>
             <p className="text-[10px] text-indigo-400 font-bold uppercase">Call Us</p>
-            <p className="text-sm font-bold text-indigo-900">+91 9876543210</p>
+            <p className="text-sm font-bold text-indigo-900">{SUPPORT_PHONE}</p>
           </div>
         </div>
         <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 flex items-center gap-3">
@@ -114,6 +112,4 @@ export default function PortalSupport({ user }) {
   );
 }
 
-const Clock = ({ className }) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-);
+

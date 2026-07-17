@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Check, X, Plus, Package, ChevronLeft, ChevronRight,
-  RefreshCw, Undo2, Repeat2, Milk, Coffee, Moon, CalendarOff,
+  Check, Plus, Package, ChevronLeft, ChevronRight,
+  RefreshCw, Milk, Coffee, Moon, CalendarOff, AlertCircle, Truck,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../services/api';
 import { cn, getToday, getInitials } from '../lib/utils';
-import { Card, ConfirmModal, Input, Select } from '../ui';
+import { Card, Button, ConfirmModal, Input, Select } from '../ui';
 import { motion } from 'framer-motion';
 
 // ── Delivery status helper ───────────────────────────────────────────────
@@ -148,42 +148,30 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
             <>
               <button
                 onClick={() => onQuickDeliver(customer)}
-                className="w-full btn btn-primary flex items-center justify-center gap-2 py-3.5 shadow-lg shadow-indigo-100 active:scale-95"
+                className="w-full btn btn-primary flex items-center justify-center gap-2 py-4 shadow-lg shadow-indigo-100 active:scale-95"
               >
                 <Check className="w-5 h-5 stroke-[3px]" />
                 MARK AS DELIVERED
               </button>
               <div className="grid grid-cols-2 gap-2.5">
-                <button
-                  onClick={() => onAction(customer, 'leave', 0, 0)}
-                  className="btn btn-outline border-slate-100 text-slate-500 py-3 bg-slate-50/30"
-                >
-                  <CalendarOff className="w-4 h-4 mr-2" />
-                  Leave
-                </button>
-                <button
-                  onClick={() => setShowExtra(!showExtra)}
-                  className="btn btn-outline border-slate-100 text-slate-500 py-3 bg-slate-50/30"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Extra
-                </button>
+              <Button variant="outline" onClick={() => onAction(customer, 'leave', 0, 0)} className="border-slate-100 text-slate-500 py-3.5 bg-slate-50/30">
+                <CalendarOff className="w-4 h-4" />
+                Leave
+              </Button>
+              <Button variant="outline" onClick={() => setShowExtra(!showExtra)} className="border-slate-100 text-slate-500 py-3.5 bg-slate-50/30">
+                <Plus className="w-4 h-4" />
+                Extra
+              </Button>
               </div>
             </>
           ) : (
             <div className="flex gap-2">
-              <button
-                onClick={() => onReset(delivery)}
-                className="flex-1 btn btn-ghost text-[11px] py-2.5 text-rose-500 hover:bg-rose-50 rounded-xl font-black uppercase tracking-tighter"
-              >
+              <Button variant="ghost" onClick={() => onReset(delivery)} className="flex-1 text-[11px] py-3 text-rose-500 hover:bg-rose-50 rounded-xl font-black uppercase tracking-tighter">
                 Reset to Pending
-              </button>
-              <button
-                onClick={() => setShowExtra(!showExtra)}
-                className="flex-1 btn btn-ghost text-[11px] py-2.5 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl font-bold"
-              >
+              </Button>
+              <Button variant="ghost" onClick={() => setShowExtra(!showExtra)} className="flex-1 text-[11px] py-3 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 rounded-xl font-bold">
                 {extraMilk > 0 ? 'Update Extra' : 'Add Extra Milk'}
-              </button>
+              </Button>
             </div>
           )}
 
@@ -225,14 +213,31 @@ export default function Deliveries() {
   const [modalState,      setModalState]      = useState({ isOpen: false, customer: null, action: null, payload: null });
   const [leaveForm,       setLeaveForm]       = useState({ customer_id: '', start_date: '', end_date: '', reason: '' });
   const [showLeaveForm,   setShowLeaveForm]   = useState(false);
+  const [resetTarget,     setResetTarget]     = useState(null); // delivery object
   const undoTimeouts = useRef({});
 
-  const { data: customers  = [], isLoading: loadingCust } = useQuery({
+  const { data: customers = [], isLoading: loadingCust, isError: custIsError, error: _custError, refetch: refetchCust } = useQuery({
     queryKey: ['customers'],
-    queryFn:  api.customers.getAll,
+    queryFn:  () => api.customers.getAll(),
   });
 
-  const { data: deliveries = [], isLoading: loadingDel, refetch, isFetching } = useQuery({
+  const { data: allLeaves = [] } = useQuery({
+    queryKey: ['all-leaves'],
+    queryFn:  () => api.leave.getAll(),
+  });
+
+  const onLeaveCustomerIds = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    const ids = new Set();
+    allLeaves.forEach(l => {
+      if (l.start_date <= today && (!l.end_date || l.end_date >= today)) {
+        ids.add(l.customer_id);
+      }
+    });
+    return ids;
+  }, [allLeaves]);
+
+  const { data: deliveries = [], isLoading: loadingDel, isError: delIsError, error: _delError, refetch, isFetching } = useQuery({
     queryKey: ['deliveries', selectedDate],
     queryFn:  () => api.deliveries.getAll({ date: selectedDate }),
   });
@@ -286,6 +291,8 @@ export default function Deliveries() {
     scheduled_quantity: parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0),
     delivered_quantity: status === 'leave' ? 0 : parseFloat(baseQuantity || 0),
     status,
+    delivered:          status === 'delivered' || status === 'extra',
+    leave:              status === 'leave',
     extra_milk:         status === 'leave' ? 0 : parseFloat(extraMilk || 0),
     delivery_shift:     customer.shift || 'morning',
     is_deleted:         false,
@@ -328,11 +335,15 @@ export default function Deliveries() {
   const handleReset = async (delivery) => {
     if (!delivery?.id) return;
     if (String(delivery.id).startsWith('temp-')) return;
-    
-    if (!window.confirm('Reset this delivery to pending?')) return;
+    setResetTarget(delivery);
+  };
 
+  const confirmReset = async () => {
+    if (!resetTarget?.id) return;
+    const deliveryId = resetTarget.id;
+    setResetTarget(null);
     try {
-      await api.deliveries.softDelete(delivery.id);
+      await api.deliveries.softDelete(deliveryId);
       queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
       toast.success('Reset to pending');
     } catch (err) {
@@ -391,6 +402,12 @@ export default function Deliveries() {
       toast.error('Select customer and start date');
       return;
     }
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (leaveForm.start_date < today) {
+      toast.error('Leave cannot be applied for past dates');
+      return;
+    }
     try {
       await api.leave.create({
         customer_id: Number(leaveForm.customer_id),
@@ -403,6 +420,7 @@ export default function Deliveries() {
       setShowLeaveForm(false);
       // Wait for cache to clear so UI updates
       await queryClient.invalidateQueries({ queryKey: ['deliveries'] });
+      await queryClient.invalidateQueries({ queryKey: ['all-leaves'] });
     } catch (error) {
       toast.error(error.message || 'Failed to save leave');
     }
@@ -414,6 +432,21 @@ export default function Deliveries() {
     setSelectedDate(date.toISOString().split('T')[0]);
   };
 
+  if (custIsError || delIsError) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md p-8 text-center">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+          <h3 className="text-lg font-bold text-red-700 mb-2">Failed to load deliveries</h3>
+          <p className="text-sm text-red-500 mb-4">Something went wrong while fetching data. Please try again.</p>
+          <Button onClick={() => { refetchCust(); refetch(); }}>
+            <RefreshCw className="w-4 h-4" /> Retry
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   if (loadingCust || loadingDel) return (
     <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
       {[...Array(6)].map((_, i) => <div key={i} className="skeleton h-44" />)}
@@ -421,27 +454,42 @@ export default function Deliveries() {
   );
 
   return (
+    <>
+      {/* Reset confirmation modal */}
+      <ConfirmModal
+        isOpen={!!resetTarget}
+        onClose={() => setResetTarget(null)}
+        onConfirm={confirmReset}
+        title="Reset Delivery?"
+        message="Reset this delivery to pending? This will remove the current status."
+        confirmText="Yes, Reset"
+        cancelText="Cancel"
+        variant="danger"
+      />
+
     <div className="pb-28">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="pl-12 md:pl-0">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Deliveries</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">
-              {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </p>
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
+              <Truck className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Deliveries</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                {new Date(selectedDate + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+            </div>
           </div>
           <button 
             onClick={() => refetch()} 
             disabled={isFetching} 
             className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
           >
-            <RefreshCw className={cn('w-4.5 h-4.5', isFetching && 'animate-spin')} />
+            <RefreshCw className={cn('w-4 h-4', isFetching && 'animate-spin')} />
           </button>
         </div>
-      </div>
-
-      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
 
         {/* Date navigator + shift filter */}
         <Card className="p-3 flex flex-col sm:flex-row gap-3 border-slate-100 shadow-sm">
@@ -475,12 +523,9 @@ export default function Deliveries() {
             options={routes.map(r => ({ value: r, label: r === 'all' ? '🚩 All Routes' : `📍 ${r}` }))}
             className="w-full sm:w-40"
           />
-          <button
-            onClick={() => { setSelectedDate(getToday()); }}
-            className="btn btn-ghost text-xs font-black text-indigo-600 whitespace-nowrap uppercase tracking-widest"
-          >
+          <Button variant="ghost" onClick={() => { setSelectedDate(getToday()); }} className="text-xs font-black text-indigo-600 whitespace-nowrap uppercase tracking-widest">
             Today
-          </button>
+          </Button>
         </Card>
 
         {/* Daily summary */}
@@ -494,7 +539,7 @@ export default function Deliveries() {
         {/* Long Leave panel (collapsible) */}
         <Card className="border-slate-100 p-0 overflow-hidden shadow-sm">
           <button
-            onClick={() => setShowLeaveForm(!showLeaveForm)}
+            onClick={() => { setShowLeaveForm(!showLeaveForm); if (showLeaveForm) setLeaveForm({ customer_id: '', start_date: '', end_date: '', reason: '' }); }}
             className="w-full flex items-center justify-between p-5 text-left hover:bg-slate-50 transition-colors"
           >
             <div>
@@ -510,7 +555,7 @@ export default function Deliveries() {
                 onChange={(e) => setLeaveForm(p => ({ ...p, customer_id: e.target.value }))}
                 options={[
                   { value: '', label: 'Select customer' },
-                  ...activeCustomers.map(c => ({ value: c.id, label: `#${c.id} ${c.name} - ${c.phone}` })),
+                  ...activeCustomers.map(c => ({ value: c.id, label: onLeaveCustomerIds.has(c.id) ? `🏖️ #${c.id} ${c.name} - ${c.phone} (On Leave)` : `#${c.id} ${c.name} - ${c.phone}` })),
                 ]}
               />
               <Input type="date" value={leaveForm.start_date} onChange={(e) => setLeaveForm(p => ({ ...p, start_date: e.target.value }))} placeholder="Start date" />
@@ -519,9 +564,9 @@ export default function Deliveries() {
                 <p className="text-[9px] text-slate-400 ml-1 font-bold italic">* Optional if unknown</p>
               </div>
               <Input value={leaveForm.reason} onChange={(e) => setLeaveForm(p => ({ ...p, reason: e.target.value }))} placeholder="Reason (optional)" />
-              <button onClick={submitLongLeave} className="btn btn-amber py-3 shadow-amber-100">
-                SAVE LEAVE
-              </button>
+          <Button variant="warning" onClick={submitLongLeave} className="py-3 shadow-amber-100">
+            SAVE LEAVE
+          </Button>
             </div>
           )}
         </Card>
@@ -592,5 +637,6 @@ export default function Deliveries() {
         variant="primary"
       />
     </div>
+    </>
   );
 }

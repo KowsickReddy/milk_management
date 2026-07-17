@@ -1,13 +1,20 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import './index.css';
 
 import { AppProvider, useApp } from './context/AppContext';
 import Sidebar from './components/Sidebar';
 import BottomNav from './components/BottomNav';
-import ToastContainer from './components/Toast';
-import { Milk, Loader2, Lock, User, Eye, EyeOff, Phone, ArrowRight } from 'lucide-react';
+import { Toaster, toast } from 'react-hot-toast';
+import { 
+  Milk, Loader2, Lock, User, Eye, EyeOff, Phone, ArrowRight, Fingerprint,
+  Search, Bell, Sun, Moon, LogOut, Menu 
+} from 'lucide-react';
 import { Button, Card } from './ui';
-import { toast } from 'react-hot-toast';
+import { cn } from './lib/utils';
+import { AnimatePresence, motion } from 'framer-motion';
+import { startAuthentication } from '@simplewebauthn/browser';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
 const Dashboard  = lazy(() => import('./pages/Dashboard'));
 const Customers  = lazy(() => import('./pages/Customers'));
@@ -18,6 +25,8 @@ const AccessLogs = lazy(() => import('./pages/AccessLogs'));
 const FarmManagement = lazy(() => import('./pages/FarmManagement'));
 const AccessManagement = lazy(() => import('./pages/AccessManagement'));
 const ManageLeaves     = lazy(() => import('./pages/ManageLeaves'));
+const Expenses         = lazy(() => import('./pages/Expenses'));
+const MilkCalculator   = lazy(() => import('./pages/MilkCalculator'));
 
 // Customer Portal Pages
 const PortalDashboard  = lazy(() => import('./pages/portal/PortalDashboard'));
@@ -64,14 +73,44 @@ class ErrorBoundary extends React.Component {
 }
 
 // ── Login Screen ───────────────────────────────────────────────────────────
-const DEMO_CREDENTIALS = { username: 'admin', pin: '1234' };
-
 function LoginScreen({ onLogin }) {
   const [loginType, setLoginType] = useState('admin'); // 'admin' or 'customer'
   const [identifier, setIdentifier] = useState(''); // username or phone
   const [pin,        setPin]        = useState('');
   const [showPin,  setShowPin]  = useState(false);
   const [loading,  setLoading]  = useState(false);
+  const [bioLoading, setBioLoading] = useState(false);
+
+  const handleFingerprintLogin = async () => {
+    setBioLoading(true);
+    try {
+      const beginRes = await fetch(`${API_BASE_URL}/api/auth/webauthn/login/begin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: identifier.trim() }),
+      });
+      const beginData = await beginRes.json();
+      if (!beginRes.ok) throw new Error(beginData.error || 'Biometric login failed');
+
+      const credential = await startAuthentication(beginData);
+      const completeRes = await fetch(`${API_BASE_URL}/api/auth/webauthn/login/complete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: beginData.userId, credential }),
+      });
+      const completeData = await completeRes.json();
+      if (!completeRes.ok) throw new Error(completeData.error || 'Biometric verification failed');
+
+      toast.success(`Welcome back, ${completeData.full_name || completeData.username}! 👋`);
+      onLogin(completeData);
+    } catch (err) {
+      if (err.name !== 'UserAbortedError' && err.name !== 'NotAllowedError') {
+        toast.error(err.message || 'Fingerprint login failed');
+      }
+    } finally {
+      setBioLoading(false);
+    }
+  };
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -82,8 +121,8 @@ function LoginScreen({ onLogin }) {
     setLoading(true);
     try {
       const endpoint = loginType === 'admin' 
-        ? 'http://localhost:5000/api/users/login' 
-        : 'http://localhost:5000/api/customers/login';
+        ? `${API_BASE_URL}/api/users/login` 
+        : `${API_BASE_URL}/api/customers/login`;
       
       const body = loginType === 'admin'
         ? { username: identifier.trim(), pin: pin.trim() }
@@ -99,13 +138,7 @@ function LoginScreen({ onLogin }) {
       toast.success(`Welcome back, ${data.full_name || data.username}! 👋`);
       onLogin(data);
     } catch (err) {
-      // Fallback for admin demo
-      if (loginType === 'admin' && identifier === DEMO_CREDENTIALS.username && pin === DEMO_CREDENTIALS.pin) {
-        toast.success('Welcome back, Admin! 👋');
-        onLogin({ username: identifier, role: 'admin', full_name: 'Admin' });
-      } else {
-        toast.error(err.message || 'Invalid credentials');
-      }
+      toast.error(err.message || 'Invalid credentials');
     } finally {
       setLoading(false);
     }
@@ -148,8 +181,8 @@ function LoginScreen({ onLogin }) {
               </label>
               <div className="relative">
                 {loginType === 'admin' ? 
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" /> : 
-                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" /> : 
+                  <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 }
                 <input
                   type={loginType === 'admin' ? 'text' : 'tel'}
@@ -164,7 +197,7 @@ function LoginScreen({ onLogin }) {
             <div>
               <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-1.5 block">Security PIN</label>
               <div className="relative">
-                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type={showPin ? 'text' : 'password'}
                   value={pin}
@@ -199,6 +232,24 @@ function LoginScreen({ onLogin }) {
                 </>
               )}
             </button>
+
+            {loginType === 'admin' && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={handleFingerprintLogin}
+                  disabled={bioLoading || !identifier.trim()}
+                  className="w-full py-3 bg-slate-100 text-slate-700 font-bold rounded-2xl hover:bg-slate-200 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+                >
+                  {bioLoading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Fingerprint className="w-4 h-4" />
+                  )}
+                  {bioLoading ? 'Authenticating...' : 'Fingerprint Login'}
+                </button>
+              </div>
+            )}
           </form>
 
           <div className="mt-8 text-center border-t border-slate-50 pt-6">
@@ -237,9 +288,32 @@ function AppContent() {
   });
   const { loading } = useApp();
 
+  // Theme toggle with OS preference auto-detection
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    if (saved !== null) return saved === 'true';
+    // Auto-detect OS preference on first visit
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  useEffect(() => {
+    localStorage.setItem('darkMode', darkMode);
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
+  // Live clock
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleLogin  = (userData) => {
+    if (userData.token) localStorage.setItem('token', userData.token);
     localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem('token', userData.token);
     setUser(userData);
     setActiveTab('dashboard');
   };
@@ -248,7 +322,6 @@ function AppContent() {
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     setUser(null); 
-    setActiveTab('dashboard'); 
   };
 
   const renderPage = () => {
@@ -263,6 +336,8 @@ function AppContent() {
         case 'billing':    return <Billing    {...props} />;
         case 'reports':    return <Reports    {...props} />;
         case 'access-logs':return <AccessLogs {...props} />;
+        case 'expenses':   return <Expenses   {...props} />;
+        case 'calculator': return <MilkCalculator {...props} />;
         case 'farm-mgmt':  return <FarmManagement {...props} />;
         case 'access-mgmt':return <AccessManagement {...props} />;
         case 'leaves':     return <ManageLeaves     {...props} />;
@@ -287,21 +362,103 @@ function AppContent() {
   if (loading) return <LoadingFallback />;
   if (!user) return <LoginScreen onLogin={handleLogin} />;
 
-  return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Desktop sidebar */}
-      <div className="hidden md:block">
-        <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={true} onClose={() => {}} onLogout={handleLogout} user={user} />
-      </div>
+  // Breadcrumb label
+  const pageLabels = {
+    dashboard: 'Dashboard', customers: 'Customers', deliveries: 'Deliveries',
+    billing: 'Billing', leaves: 'Manage Leaves', expenses: 'Expenses',
+    'farm-mgmt': 'Farm Management', 'access-mgmt': 'Portal Access',
+    reports: 'Reports', 'access-logs': 'Access Logs', calculator: 'Calculator',
+    bills: 'My Bills', support: 'Support',
+  };
+  const currentPage = pageLabels[activeTab] || 'Dashboard';
 
-      {/* Mobile sidebar (drawer) */}
+  return (
+    <div className={cn('min-h-screen transition-colors duration-300', darkMode ? 'dark bg-slate-900' : 'bg-slate-50')}>
+      {/* Single Sidebar — handles desktop (collapsible) + mobile (drawer with backdrop) internally */}
       <Sidebar activeTab={activeTab} onTabChange={setActiveTab} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} onLogout={handleLogout} user={user} />
 
+      {/* Top Navigation Bar */}
+      <header className={cn(
+        'sticky top-0 z-30 transition-colors duration-300',
+        darkMode ? 'bg-slate-900/80' : 'bg-white/80',
+        'backdrop-blur-xl border-b',
+        darkMode ? 'border-slate-800' : 'border-slate-200/60',
+        'md:ml-64'
+      )}>
+        <div className="flex items-center justify-between px-4 md:px-6 h-16">
+          {/* Left: Mobile hamburger + Page title */}
+          <div className="flex items-center gap-3">
+            <button
+              className="md:hidden w-9 h-9 rounded-xl flex items-center justify-center hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Menu className="w-5 h-5 text-slate-600 dark:text-slate-300" />
+            </button>
+            <div>
+              <h1 className={cn(
+                'text-lg md:text-xl font-bold tracking-tight',
+                darkMode ? 'text-white' : 'text-slate-900'
+              )}>
+                {currentPage}
+              </h1>
+              <p className={cn(
+                'text-xs font-medium',
+                darkMode ? 'text-slate-400' : 'text-slate-500'
+              )}>
+                {currentTime.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })} · {currentTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+              </p>
+            </div>
+          </div>
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2">
+            {/* Theme toggle */}
+            <button
+              onClick={() => setDarkMode(!darkMode)}
+              className={cn(
+                'w-9 h-9 rounded-xl flex items-center justify-center transition-all',
+                darkMode
+                  ? 'text-amber-400 hover:bg-slate-800'
+                  : 'text-slate-500 hover:bg-slate-100'
+              )}
+              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+
+            {/* Logout */}
+            <button
+              onClick={handleLogout}
+              className={cn(
+                'w-9 h-9 rounded-xl flex items-center justify-center transition-all',
+                darkMode
+                  ? 'text-slate-400 hover:bg-slate-800 hover:text-rose-400'
+                  : 'text-slate-500 hover:bg-slate-100 hover:text-rose-600'
+              )}
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </header>
+
       {/* Main content */}
-      <div className="md:ml-64">
+      <div className="md:ml-64 pt-0">
         <ErrorBoundary>
           <Suspense fallback={<LoadingFallback />}>
-            {renderPage()}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.2, ease: 'easeInOut' }}
+                className="p-4 md:p-6 pb-24 md:pb-6"
+              >
+                {renderPage()}
+              </motion.div>
+            </AnimatePresence>
           </Suspense>
         </ErrorBoundary>
       </div>
@@ -309,19 +466,7 @@ function AppContent() {
       {/* Mobile bottom nav */}
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} user={user} />
 
-      {/* Mobile hamburger */}
-      <button
-        className="fixed top-4 left-4 md:hidden z-50 w-10 h-10 bg-white shadow-lg rounded-xl flex items-center justify-center border border-gray-100"
-        onClick={() => setSidebarOpen(true)}
-      >
-        <div className="space-y-1.5 w-5">
-          <div className="h-0.5 bg-gray-600 rounded" />
-          <div className="h-0.5 bg-gray-600 rounded w-3/4" />
-          <div className="h-0.5 bg-gray-600 rounded" />
-        </div>
-      </button>
-
-      <ToastContainer />
+      <Toaster position="bottom-right" toastOptions={{ duration: 3000, style: { borderRadius: '16px', padding: '12px 20px', fontSize: '14px', fontWeight: 500 } }} />
     </div>
   );
 }

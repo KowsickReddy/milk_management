@@ -9,7 +9,6 @@ import {
   Smartphone,
   Fingerprint,
   UserCheck,
-  ChevronRight
 } from 'lucide-react';
 import api from '../services/api';
 import { Card, Button, Input, Select } from '../ui';
@@ -23,7 +22,7 @@ export default function AccessManagement() {
   const [editingPin, setEditingPin] = useState(null); // { id, name, pin }
   const [newPin, setNewPin] = useState('');
 
-  const { data: customers = [], isLoading, refetch, isFetching } = useQuery({
+  const { data: customers = [], isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['customers-access'],
     queryFn: () => api.customers.getAll(),
   });
@@ -34,7 +33,7 @@ export default function AccessManagement() {
         c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         c.phone?.includes(searchTerm);
       
-      const hasCustomPin = c.pin && c.pin !== '1234';
+      const hasCustomPin = c.pin && c.pin !== '';
       const matchAccess = accessFilter === 'all' || 
         (accessFilter === 'active' && hasCustomPin) || 
         (accessFilter === 'default' && !hasCustomPin);
@@ -60,24 +59,26 @@ export default function AccessManagement() {
 
   return (
     <div className="pb-28">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-4 py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <div className="pl-12 md:pl-0">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Portal Access</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1.5">Customer Authentication Management</p>
+      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-50 flex items-center justify-center">
+              <Fingerprint className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Portal Access</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Customer Authentication Management</p>
+            </div>
           </div>
           <button 
             onClick={() => refetch()} 
             disabled={isFetching}
             className="w-10 h-10 rounded-xl hover:bg-slate-50 flex items-center justify-center text-indigo-600 transition-colors border border-slate-100"
           >
-            <RefreshCw className={cn("w-4.5 h-4.5", isFetching && "animate-spin")} />
+            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
           </button>
         </div>
-      </div>
-
-      <main className="max-w-4xl mx-auto px-4 py-8 space-y-8">
         {/* Onboarding Alert */}
         <div className="bg-indigo-600 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-200 relative overflow-hidden group">
           <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:scale-110 transition-transform">
@@ -154,6 +155,13 @@ export default function AccessManagement() {
         <div className="space-y-4">
           {isLoading ? (
             [...Array(5)].map((_, i) => <div key={i} className="skeleton h-24 w-full" />)
+          ) : isError ? (
+            <div className="text-center py-20 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm">
+              <Smartphone className="w-16 h-16 mx-auto text-slate-100 mb-4" />
+              <p className="font-black text-red-500 uppercase tracking-widest text-xs">Failed to load customers</p>
+              <p className="text-gray-400 text-xs mt-1">{error?.message}</p>
+              <Button onClick={() => refetch()} className="mt-4">Retry</Button>
+            </div>
           ) : filteredCustomers.length === 0 ? (
             <div className="text-center py-20 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm">
               <Smartphone className="w-16 h-16 mx-auto text-slate-100 mb-4" />
@@ -163,7 +171,7 @@ export default function AccessManagement() {
             filteredCustomers.map(customer => {
               const isDefault = !customer.pin || customer.pin === '1234';
               return (
-                <Card key={customer.id} className="p-5 flex items-center justify-between hover:shadow-lg hover:border-indigo-100 transition-all group border-slate-100 bg-white/60">
+                <Card key={customer.id} className="p-5 flex items-center justify-between hover:shadow-lg hover:border-indigo-100 transition-all group border-slate-100 bg-white">
                   <div className="flex items-center gap-5">
                     <div className={cn(
                       "w-14 h-14 rounded-3xl flex items-center justify-center transition-all duration-300 group-hover:rotate-6",

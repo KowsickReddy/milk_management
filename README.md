@@ -1,335 +1,261 @@
-# Milk Management System - Complete Setup & Issue Fixes
+# 🥛 Milk Management System
 
-## ✅ All Issues Fixed
+A comprehensive dairy management system with customer management, delivery tracking, billing, payments, and a customer self-service portal.
 
-### Critical Fixes Applied:
-1. ✅ **ModalContent isOpen prop** - Fixed in Customers.jsx (removed invalid prop)
-2. ✅ **Backend API Integration** - Created `src/services/api.js` with full API layer
-3. ✅ **Database Schema** - Created `backend_py/schema.sql` with complete schema
-4. ✅ **Bill Generation Logic** - Now uses actual deliveries, not `* 30` calculation
-5. ✅ **Payment Credit Tracking** - Excess payments now add to customer credit balance
-6. ✅ **Toast Notifications** - Added ToastContainer to App.js
-7. ✅ **XSS Protection** - Added `sanitizeString()` function in AppContext
-8. ✅ **localStorage Optimization** - Implemented debounced saves (1s delay)
-9. ✅ **Input Validation** - All customer data sanitized before storage
-
-### New Features Added:
-- ✅ Full API service layer with fallback to localStorage
-- ✅ Toast notifications for all CRUD operations
-- ✅ Proper error handling throughout
-- ✅ API availability checking
-- ✅ Date-range based bill generation
+**Tech Stack:** React 18 · Node.js/Express · MySQL · JWT Auth · Tailwind CSS
 
 ---
 
-## 🚀 Setup Instructions
+## 🚀 Quick Start
 
-### Backend Setup:
+### Prerequisites
+- **Node.js** v18+ and **npm**
+- **MySQL** 8.0+ running locally or on a server
 
-1. **Install MySQL** (if not installed):
-   - Download from: https://dev.mysql.com/downloads/
-   - Or use XAMPP/WAMP for easy setup
+### 1. Clone & Install Dependencies
 
-2. **Create Database**:
-   ```bash
-   # Open MySQL command line or MySQL Workbench
-   mysql -u root -p
-   
-   # Run the schema file:
-   source E:/Milk_management/backend_py/schema.sql
-   ```
-   
-   Or manually:
-   ```sql
-   CREATE DATABASE milk_management_db;
-   USE milk_management_db;
-   -- Copy and paste contents of backend_py/schema.sql
-   ```
+```bash
+# Frontend
+cd milk-management
+npm install
 
-3. **Configure Backend**:
-   ```bash
-   cd E:\Milk_management\backend_py
-   ```
-   
-   Edit `.env` file:
-   ```
-   DB_HOST=localhost
-   DB_USER=root
-   DB_PASSWORD=your_mysql_password
-   DB_NAME=milk_management_db
-   PORT=5000
-   ```
+# Backend
+cd backend
+npm install
+cd ..
+```
 
-4. **Install Python Dependencies**:
-   ```bash
-   cd E:\Milk_management\backend_py
-   pip install flask flask-cors pymysql python-dotenv
-   ```
+### 2. Configure Environment
 
-5. **Start Backend**:
-   ```bash
-   python app.py
-   ```
-   
-   Backend will run on: http://localhost:5000
+**Backend** — Copy and edit the backend environment file:
 
-### Frontend Setup:
+```bash
+cp backend/.env.example backend/.env
+```
 
-1. **Install Dependencies**:
-   ```bash
-   cd E:\Milk_management
-   npm install
-   ```
+Edit `backend/.env` with your database credentials:
 
-2. **Configure Environment** (optional):
-   Create `.env` file in root:
-   ```
-   REACT_APP_API_URL=http://localhost:5000
-   ```
+```
+PORT=5000
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_mysql_password
+DB_NAME=milk_management_db
+JWT_SECRET=your_random_secret_key_here
+FRONTEND_URL=http://localhost:3000
+```
 
-3. **Start Frontend**:
-   ```bash
-   npm start
-   ```
-   
-   Frontend will open on: http://localhost:3000
+**Frontend** (optional) — Create a `.env` file in the project root:
+
+```bash
+cp .env.example .env
+```
+
+Set `REACT_APP_API_URL` to point to your backend (defaults to `http://localhost:5000`).
+
+### 3. Initialize Database
+
+The backend auto-creates all tables on first run. Just make sure MySQL is running and the database exists:
+
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS milk_management_db;"
+```
+
+Then start the backend:
+
+```bash
+cd backend
+npm start
+```
+
+The server will create all required tables and seed a default admin account:
+- **Username:** `admin`
+- **PIN:** `1234`
+
+### 4. Start Frontend
+
+In a separate terminal:
+
+```bash
+cd milk-management
+npm start
+```
+
+The app opens at **http://localhost:3000**.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-milk_management/
-├── backend_py/
-│   ├── app.py              # Flask backend API
-│   ├── schema.sql          # Database schema (RUN THIS FIRST!)
-│   ├── requirements.txt    # Python dependencies
-│   └── .env               # Database configuration
+milk-management/
+├── backend/
+│   ├── server.js           # Express API server (all routes)
+│   ├── init_db.js          # Database initialization & migrations
+│   ├── .env.example        # Backend env template
+│   └── __tests__/
+│       └── server.test.js  # 85 API tests
 ├── src/
+│   ├── App.js              # Main app (lazy routes, login screen, error boundary)
+│   ├── index.js            # Entry point (React Query provider)
+│   ├── index.css           # Tailwind + custom styles
 │   ├── services/
-│   │   └── api.js         # API service layer (NEW)
+│   │   └── api.js          # API service layer (all endpoints)
 │   ├── context/
-│   │   └── AppContext.jsx # State management (FIXED)
-│   ├── pages/
-│   │   ├── Dashboard.jsx  # Dashboard with charts
-│   │   ├── Customers.jsx  # Customer management
-│   │   ├── Deliveries.jsx # Delivery tracking
-│   │   └── Billing.jsx    # Bills & payments
+│   │   └── AppContext.jsx  # Global state (offline fallback)
 │   ├── components/
-│   │   ├── Toast.jsx      # Notification system
-│   │   ├── Sidebar.jsx    # Navigation sidebar
-│   │   └── BottomNav.jsx  # Mobile navigation
-│   ├── ui/
-│   │   ├── Button.jsx     # Reusable button component
-│   │   ├── Card.jsx       # Reusable card component
-│   │   ├── Modal.jsx      # Modal components
-│   │   ├── Input.jsx      # Form inputs
-│   │   └── Badge.jsx      # Badge components
-│   ├── lib/
-│   │   └── utils.js       # Utility functions
-│   └── App.js             # Main app component
-├── package.json
-└── README.md
+│   │   ├── Sidebar.jsx     # Desktop sidebar nav
+│   │   ├── BottomNav.jsx   # Mobile bottom nav
+│   │   └── FingerprintManager.jsx  # WebAuthn biometrics
+│   ├── pages/              # App pages (admin + portal)
+│   ├── ui/                 # Reusable UI primitives
+│   └── lib/
+│       └── utils.js        # Utility functions
+├── public/
+│   ├── index.html          # HTML shell
+│   ├── manifest.json       # PWA manifest
+│   ├── service-worker.js   # Service Worker (network-first for navigation)
+│   └── _redirects          # Netlify SPA routing
+├── cypress/                # E2E tests (5 spec files)
+├── netlify.toml            # Netlify deployment config
+├── .env.example            # Frontend env template
+└── package.json
 ```
 
 ---
 
-## 🔧 Configuration
+## 🔐 Default Credentials
 
-### Backend Environment Variables (`.env`):
-```
-DB_HOST=localhost
-DB_USER=root
-DB_PASSWORD=your_password
-DB_NAME=milk_management_db
-PORT=5000
-```
-
-### Frontend Environment Variables (optional):
-```
-REACT_APP_API_URL=http://localhost:5000
-```
+| Role | Username / Phone | PIN |
+|------|-----------------|-----|
+| **Admin** | `admin` | `1234` |
+| **Customer** | (registered phone) | Set by admin via Portal Access page |
 
 ---
 
-## 🔐 Security Features
+## 📖 Feature Guide
 
-1. **XSS Protection**: All user inputs are sanitized
-2. **API Authentication**: Backend supports user-based auth (optional)
-3. **Input Validation**: Phone numbers, names, amounts validated
-4. **CORS Configured**: Only allowed origins can access API
+### Admin Pages (14 total)
 
----
+| Page | Route | Description |
+|------|-------|-------------|
+| **Dashboard** | default | KPIs, charts, today's deliveries, quick actions |
+| **Customers** | `customers` | CRUD, search/filter, wallet balance, customer summary with reports |
+| **Deliveries** | `deliveries` | Daily delivery marking, leave overlay, batch entry, extra milk |
+| **Billing** | `billing` | Bill generation (single/batch), payments, WhatsApp sharing |
+| **Reports** | `reports` | Daily report, monthly report with customer breakdown, P&L statement |
+| **Expenses** | `expenses` | CRUD with category/date filtering |
+| **Farm Management** | `farm-mgmt` | Cattle inventory, feed purchases, calving alerts |
+| **Manage Leaves** | `leaves` | View and cancel customer leave periods |
+| **Portal Access** | `access-mgmt` | Set/manage customer PINs for portal login |
+| **Access Control** | `access-logs` | Login logs, staff accounts, biometric management |
+| **Milk Calculator** | `calculator` | Monthly bill estimator with period-based calculation |
+| **Access Logs** | `access-logs` | Login history, staff accounts, customer PIN management |
 
-## 📊 Features
+### Customer Portal (4 pages)
 
-### Customer Management:
-- Add, edit, delete customers
-- Track milk quantity and rates
-- Customer status management
-- Shift tracking (morning/evening/occasional)
+| Page | Description |
+|------|-------------|
+| **Dashboard** | Today's delivery, subscription info, wallet balance |
+| **My Deliveries** | Last 30 days of delivery history |
+| **My Bills** | Monthly invoices with payment status |
+| **Support** | Submit complaints, contact info |
 
-### Delivery Tracking:
-- Daily delivery recording
-- Leave tracking
-- Extra milk tracking
-- Date navigation
-- Shift filtering
+### API Features
 
-### Billing & Payments:
-- **Accurate billing** based on actual deliveries
-- Date range selection for bills
-- Full and partial payments
-- Change tracking
-- Credit balance for overpayments
-
-### Dashboard:
-- Real-time statistics
-- Weekly milk delivery charts
-- Monthly revenue charts
-- Quick actions
-- Recent deliveries
-
----
-
-## 🐛 Known Issues Fixed
-
-| Issue | Status | Fix Applied |
-|-------|--------|-------------|
-| Modal not working | ✅ Fixed | Removed invalid isOpen prop |
-| Backend disconnected | ✅ Fixed | Created API service layer |
-| Bills incorrect | ✅ Fixed | Uses actual deliveries now |
-| Credit not tracked | ✅ Fixed | Added to payment logic |
-| No notifications | ✅ Fixed | Added ToastContainer |
-| XSS vulnerability | ✅ Fixed | Input sanitization added |
-| localStorage performance | ✅ Fixed | Debounced saves |
-| Date timezone bug | ✅ Fixed | Use local date strings |
-| Charts empty state | ✅ Fixed | Added empty state checks |
-| No input validation | ✅ Fixed | Validation throughout |
+- JWT authentication with httpOnly cookies
+- Rate-limited login (10 attempts / 15 min)
+- Role-based access (admin, worker, customer)
+- bcrypt password hashing
+- WebAuthn biometric authentication
+- Transaction-safe payment recording
+- Auto-generated bills from actual deliveries
+- Wallet credit system for overpayments
+- Telegram notifications for customer updates & complaints
+- CORS security with allowed origins
 
 ---
 
-## 🚀 Usage Guide
+## 🧪 Testing
 
-### Adding a Customer:
-1. Go to Customers page
-2. Click "Add Customer"
-3. Fill in details (name, phone, address, quantity, rate)
-4. Click "Add Customer"
+### Backend Tests (85 tests)
 
-### Recording Delivery:
-1. Go to Deliveries page
-2. Select date (defaults to today)
-3. Click "Delivered" or "Leave" for each customer
-4. Add extra milk if needed
-
-### Generating Bill:
-1. Go to Customers page
-2. Click "Bill" button on customer card
-3. Bill is generated based on actual deliveries
-4. View in Billing page
-
-### Recording Payment:
-1. Go to Billing page
-2. Find unpaid bill
-3. Click "Pay Full" or "Partial"
-4. Enter amount
-5. Payment recorded, credit added if overpaid
-
----
-
-## 📝 API Endpoints
-
-### Customers:
-- `GET /api/customers` - Get all customers
-- `POST /api/customers` - Create customer
-- `PUT /api/customers/:id` - Update customer
-- `DELETE /api/customers/:id` - Delete customer
-
-### Deliveries:
-- `GET /api/deliveries` - Get deliveries (with filters)
-- `POST /api/deliveries` - Create delivery
-
-### Bills:
-- `GET /api/bills` - Get bills (with filters)
-- `POST /api/bills` - Create bill
-- `PUT /api/bills/:id` - Update bill
-- `DELETE /api/bills/:id` - Delete bill
-
-### Payments:
-- `GET /api/payments` - Get payments
-- `POST /api/payments` - Create payment
-
-### Analytics:
-- `GET /api/analytics/dashboard` - Dashboard stats
-- `GET /api/analytics/earnings` - Monthly earnings
-
----
-
-## 🔄 Troubleshooting
-
-### Backend won't start:
 ```bash
-# Check if MySQL is running
-mysql -u root -p
-
-# Check Python dependencies
-pip install -r requirements.txt
-
-# Check .env file exists and has correct values
+cd backend
+npm test
 ```
 
-### Frontend can't connect to backend:
+Covers all route groups: auth, customers, users, deliveries, leave, bills, payments, credits, expenses, cattle, feed, analytics, reports, portal, WebAuthn, admin.
+
+### E2E Tests (Cypress)
+
 ```bash
-# Check backend is running on port 5000
-curl http://localhost:5000/health
-
-# Check CORS configuration in backend
-# Ensure REACT_APP_API_URL is correct
+npx cypress run               # Headless
+npx cypress run --headed      # Visible browser
+npx cypress open              # Interactive mode
 ```
 
-### Database errors:
+### Frontend Tests
+
 ```bash
-# Run schema.sql again
-mysql -u root -p milk_management_db < backend_py/schema.sql
-
-# Check database exists
-mysql -u root -p -e "SHOW DATABASES;"
+npm test
 ```
+
+---
+
+## ☁️ Deployment (Netlify + Backend Host)
+
+### Frontend → Netlify
+
+1. Push to GitHub
+2. Connect repo in Netlify
+3. Set build command: `npm run build`
+4. Set publish directory: `build`
+5. **Important:** Set environment variable:
+   - `REACT_APP_API_URL` → URL of your hosted backend
+
+Netlify automatically picks up `netlify.toml` and `public/_redirects` for SPA routing.
+
+### Backend → Render / Railway / VPS
+
+1. Deploy `backend/` to Render (Web Service) or Railway
+2. Set all environment variables (DB_HOST, DB_PASSWORD, JWT_SECRET, etc.)
+3. Make sure the backend has a public URL that the frontend can reach
+
+---
+
+## 🔧 Environment Variables
+
+### Backend (`backend/.env`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `5000` | Server port |
+| `DB_HOST` | No | `localhost` | MySQL host |
+| `DB_USER` | No | `root` | MySQL user |
+| `DB_PASSWORD` | **Yes** | — | MySQL password |
+| `DB_NAME` | No | `milk_management_db` | Database name |
+| `JWT_SECRET` | **Yes** | — | JWT signing secret |
+| `FRONTEND_URL` | No | `http://localhost:3000` | Allowed CORS origin(s) |
+| `TELEGRAM_BOT_TOKEN` | No | — | Bot token for notifications |
+| `TELEGRAM_CHAT_ID` | No | — | Chat ID for notifications |
+| `WEBAUTHN_ORIGIN` | No | `http://localhost:3000` | WebAuthn origin |
+
+### Frontend (`.env`)
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `REACT_APP_API_URL` | No | `http://localhost:5000` | Backend API base URL |
+| `REACT_APP_SUPPORT_PHONE` | No | `+91 9876543210` | Support phone number |
+
+---
+
+## 🤝 Support
+
+For issues or questions, please create a GitHub issue or contact the development team.
 
 ---
 
 ## 📄 License
 
 This project is for educational and business use.
-
----
-
-## 🤝 Support
-
-For issues or questions:
-1. Check this README
-2. Review error messages in console
-3. Verify all dependencies installed
-4. Ensure MySQL is running
-5. Check .env configuration
-
----
-
-## ✨ Recent Updates
-
-### Version 2.0 (Latest):
-- ✅ Full backend API integration
-- ✅ Accurate bill generation from deliveries
-- ✅ Credit balance tracking
-- ✅ Toast notifications
-- ✅ XSS protection
-- ✅ Debounced localStorage
-- ✅ Input sanitization
-- ✅ Error handling throughout
-- ✅ Complete database schema
-- ✅ Setup documentation
-
----
-
-**Last Updated:** April 2025

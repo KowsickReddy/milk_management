@@ -1,25 +1,19 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Plus, 
-  Trash2, 
   Calendar, 
-  Truck, 
-  TrendingDown,
   RefreshCw,
   Beef,
   Package,
   AlertCircle,
   Edit2,
-  X,
-  Coffee,
-  Moon,
-  CalendarOff
+  Trash2
 } from 'lucide-react';
 import api from '../services/api';
-import { Card, Button, Input, Select, ModalContent, ModalHeader, ModalBody, ModalFooter } from '../ui';
+import { Card, Button, Input, Select, ModalContent, ModalHeader, ModalBody, ModalFooter, ConfirmModal } from '../ui';
 import { toast } from 'react-hot-toast';
-import { formatCurrency, getToday, getMonthName, getInitials } from '../lib/utils';
+import { formatCurrency, getToday } from '../lib/utils';
 import { format, addMonths } from 'date-fns';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -30,6 +24,7 @@ export default function FarmManagement() {
   const [showCattleModal, setShowCattleModal] = useState(false);
   const [showFeedModal, setShowFeedModal] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { type: 'cattle'|'feed', id }
 
   // Cattle State
   const initialCattleForm = {
@@ -53,17 +48,17 @@ export default function FarmManagement() {
   };
   const [feedForm, setFeedForm] = useState(initialFeedForm);
 
-  const { data: cattle = [], isLoading: loadingCattle } = useQuery({
+  const { data: cattle = [], isLoading: loadingCattle, isError: cattleIsError, error: _cattleError, refetch: refetchCattle } = useQuery({
     queryKey: ['cattle'],
     queryFn: () => api.cattle.getAll(),
   });
 
-  const { data: feed = [], isLoading: loadingFeed } = useQuery({
+  const { data: feed = [], isLoading: loadingFeed, isError: feedIsError, error: _feedError, refetch: refetchFeed } = useQuery({
     queryKey: ['feed'],
     queryFn: () => api.feed.getAll(),
   });
 
-  const { data: stats } = useQuery({
+  const { data: stats, isError: statsIsError, error: _statsError, refetch: refetchStats } = useQuery({
     queryKey: ['farm-stats'],
     queryFn: () => api.analytics.getFarmStats(),
   });
@@ -138,6 +133,21 @@ export default function FarmManagement() {
     feedMutation.mutate(payload);
   };
 
+  if (cattleIsError || feedIsError || statsIsError) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Card className="max-w-md p-8 text-center">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+          <h3 className="text-lg font-bold text-red-700 mb-2">Failed to load farm data</h3>
+          <p className="text-sm text-red-500 mb-4">Something went wrong while fetching data. Please try again.</p>
+          <Button onClick={() => { refetchCattle(); refetchFeed(); refetchStats(); }}>
+            <RefreshCw className="w-4 h-4" /> Retry
+          </Button>
+        </Card>
+      </div>
+    );
+  }
+
   if (loadingCattle || loadingFeed) {
     return (
       <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -147,15 +157,21 @@ export default function FarmManagement() {
   }
 
   return (
+    <>
     <div className="pb-28">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200/60 px-4 py-4 md:py-6 sticky top-0 z-30 shadow-sm shadow-slate-100/50">
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="pl-12 md:pl-0">
-            <h1 className="text-xl font-black text-slate-900 tracking-tight">Farm Management</h1>
-            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Breeding & Feed Logs</p>
+      <main className="max-w-7xl mx-auto px-4 py-6 space-y-6">
+        {/* Page header */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-emerald-50 flex items-center justify-center">
+              <Beef className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <h1 className="text-lg md:text-xl font-bold text-slate-900 tracking-tight">Farm Management</h1>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Breeding & Feed Logs</p>
+            </div>
           </div>
-          <div className="flex bg-slate-100 p-1 rounded-2xl self-end md:self-auto">
+          <div className="flex bg-slate-100 p-1 rounded-2xl">
             <button 
               onClick={() => setActiveTab('cattle')}
               className={cn("px-4 md:px-6 py-2 text-[10px] md:text-xs font-black uppercase tracking-widest rounded-xl transition-all", activeTab === 'cattle' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500")}
@@ -170,9 +186,6 @@ export default function FarmManagement() {
             </button>
           </div>
         </div>
-      </div>
-
-      <main className="max-w-7xl mx-auto px-4 py-6 md:py-8 space-y-6 md:space-y-8">
         {/* Farm Stats Summary */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <div className="bg-white p-4 md:p-5 rounded-[1.5rem] md:rounded-[2rem] border border-slate-100 shadow-sm">
@@ -270,7 +283,7 @@ export default function FarmManagement() {
                           <div className="flex items-center justify-between">
                             <div>
                               <p className="text-[10px] text-indigo-100 font-bold uppercase">Expected Calving</p>
-                              <p className="text-sm font-black">{format(calvingDate, 'MMM dd, yyyy')}</p>
+                              <p className="text-sm font-black">{calvingDate ? format(calvingDate, 'MMM dd, yyyy') : 'N/A'}</p>
                             </div>
                             <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
                               <Calendar className="w-5 h-5 text-white" />
@@ -285,7 +298,7 @@ export default function FarmManagement() {
 
                       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => handleEditCattle(cow)} className="p-2 rounded-xl bg-white/80 backdrop-blur shadow-sm text-indigo-600 hover:bg-indigo-600 hover:text-white transition-all"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => { if(window.confirm('Delete this cattle record?')) api.cattle.delete(cow.id).then(() => queryClient.invalidateQueries(['cattle'])); }} className="p-2 rounded-xl bg-white/80 backdrop-blur shadow-sm text-rose-500 hover:bg-rose-500 hover:text-white transition-all"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => setDeleteTarget({ type: 'cattle', id: cow.id })} className="p-2 rounded-xl bg-white/80 backdrop-blur shadow-sm text-rose-500 hover:bg-rose-500 hover:text-white transition-all"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </Card>
                   );
@@ -301,8 +314,9 @@ export default function FarmManagement() {
                 </Button>
               </div>
 
-              <Card className="overflow-hidden border-slate-100 shadow-sm bg-white/60">
-                <table className="w-full text-left">
+              <Card className="border-slate-100 shadow-sm bg-white/60 p-0 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100">
                       <th className="px-6 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Date</th>
@@ -329,12 +343,13 @@ export default function FarmManagement() {
                         <td className="px-6 py-4 text-sm text-slate-400 font-bold text-center">₹{f.cost_per_bag}</td>
                         <td className="px-6 py-4 text-sm font-black text-slate-900 text-right">{formatCurrency(f.total_cost)}</td>
                         <td className="px-6 py-4 text-center">
-                          <button onClick={() => { if(window.confirm('Delete this log?')) api.feed.delete(f.id).then(() => queryClient.invalidateQueries(['feed'])); }} className="p-2.5 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
+                          <button onClick={() => setDeleteTarget({ type: 'feed', id: f.id })} className="p-2.5 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 className="w-4 h-4" /></button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </Card>
             </motion.div>
           )}
@@ -413,7 +428,7 @@ export default function FarmManagement() {
               </div>
             </ModalBody>
             <ModalFooter>
-              <Button variant="ghost" onClick={() => setShowFeedModal(false)}>Cancel</Button>
+              <Button variant="ghost" onClick={() => { setShowFeedModal(false); setFeedForm(initialFeedForm); }}>Cancel</Button>
               <Button variant="success" onClick={handleSaveFeed} disabled={feedMutation.isPending}>
                 {feedMutation.isPending ? 'Processing...' : 'Save Purchase Log'}
               </Button>
@@ -422,5 +437,36 @@ export default function FarmManagement() {
         )}
       </AnimatePresence>
     </div>
+
+      {/* Delete Confirm Modal */}
+      <ConfirmModal
+        isOpen={deleteTarget !== null}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={async () => {
+          if (!deleteTarget) return;
+          try {
+            if (deleteTarget.type === 'cattle') {
+              await api.cattle.delete(deleteTarget.id);
+              queryClient.invalidateQueries({ queryKey: ['cattle'] });
+              toast.success('Cattle record deleted');
+            } else {
+              await api.feed.delete(deleteTarget.id);
+              queryClient.invalidateQueries({ queryKey: ['feed'] });
+              toast.success('Feed record deleted');
+            }
+            queryClient.invalidateQueries({ queryKey: ['farm-stats'] });
+          } catch (err) {
+            toast.error(err.message);
+          } finally {
+            setDeleteTarget(null);
+          }
+        }}
+        title={deleteTarget?.type === 'cattle' ? 'Delete Cattle Record?' : 'Delete Feed Record?'}
+        message={deleteTarget?.type === 'cattle' ? 'Remove this cattle record? This cannot be undone.' : 'Remove this feed purchase record? This cannot be undone.'}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="danger"
+      />
+    </>
   );
 }
