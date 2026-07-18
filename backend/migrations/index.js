@@ -12,6 +12,7 @@ const migrations = [
   require('./006_bill_periods'),
   require('./007_farm_schema'),
   require('./008_profile_photos'),
+  require('./009_both_shifts'),
 ];
 
 async function runMigrations() {

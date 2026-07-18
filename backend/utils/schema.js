@@ -19,6 +19,7 @@ async function createTables() {
       milk_rate_per_liter NUMERIC(10,2) DEFAULT 0,
       default_milk_quantity NUMERIC(10,2) DEFAULT 0,
       shift VARCHAR(20) DEFAULT 'morning',
+      evening_milk_quantity NUMERIC(10,2) DEFAULT NULL,
       status VARCHAR(20) DEFAULT 'active',
       customer_type VARCHAR(20) DEFAULT 'regular',
       route_area VARCHAR(100) DEFAULT 'Default',

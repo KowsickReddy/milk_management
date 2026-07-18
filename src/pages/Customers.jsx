@@ -28,6 +28,7 @@ const schema = yup.object().shape({
   shift:               yup.string().required(),
   status:              yup.string().required(),
   route_area:          yup.string().optional(),
+  evening_milk_quantity: yup.number().typeError('Invalid').nullable().transform((v) => v || null),
 });
 
 // ── Customer Form Modal ───────────────────────────────────────────────────
@@ -35,7 +36,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
   const queryClient = useQueryClient();
 
   const {
-    register, handleSubmit, reset,
+    register, handleSubmit, reset, watch,
     formState: { errors },
   } = useForm({
     resolver: yupResolver(schema),
@@ -44,15 +45,22 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
       name: '', phone: '', address: '',
       daily_milk_quantity: '', milk_rate_per_liter: '',
       shift: 'morning', status: 'active', route_area: 'Default',
+      evening_milk_quantity: '',
     },
   });
 
+  // Watch the shift field live via RHF so evening field enables/disables reactively
+  const effectiveShift = watch('shift') || 'morning';
+
   useEffect(() => {
-    if (isOpen) reset(editingCustomer || {
-      name: '', phone: '', address: '',
-      daily_milk_quantity: '', milk_rate_per_liter: '',
-      shift: 'morning', status: 'active', route_area: 'Default',
-    });
+    if (isOpen) {
+      reset(editingCustomer || {
+        name: '', phone: '', address: '',
+        daily_milk_quantity: '', milk_rate_per_liter: '',
+        shift: 'morning', status: 'active', route_area: 'Default',
+        evening_milk_quantity: '',
+      });
+    }
   }, [isOpen, editingCustomer, reset]);
 
   const mutation = useMutation({
@@ -106,23 +114,41 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {field('Quantity (L/day)', 'daily_milk_quantity', 'number', { step: '0.5', placeholder: '2' })}
             {field('Rate per Liter (₹)', 'milk_rate_per_liter', 'number', { step: '0.5', placeholder: '28' })}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            {field('Route / Area', 'route_area', 'text', { placeholder: 'Ex: Sector 14' })}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Shift</label>
               <select {...register('shift')} className="input">
-                <option value="morning">☀️ Morning</option>
-                <option value="evening">🌙 Evening</option>
+                <option value="morning">☀️ Morning Only</option>
+                <option value="evening">🌙 Evening Only</option>
+                <option value="both">🌗 Both (Morning & Evening)</option>
                 <option value="occasional">🔄 Occasional</option>
               </select>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4">
+          <div className="grid grid-cols-2 gap-4">
+            {field('Morning Quantity (L)', 'daily_milk_quantity', 'number', { step: '0.5', placeholder: '2' })}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Evening Quantity (L)</label>
+              <input
+                {...register('evening_milk_quantity')}
+                type="number"
+                step="0.5"
+                placeholder={effectiveShift === 'both' ? '1.0' : '(same as morning)'}
+                className={cn('input', errors.evening_milk_quantity ? 'border-red-400' : '')}
+                disabled={effectiveShift !== 'both'}
+              />
+              {effectiveShift === 'both' && (
+                <p className="text-[10px] text-indigo-500 mt-1 font-medium">Leave empty to use morning quantity</p>
+              )}
+              {effectiveShift !== 'both' && (
+                <p className="text-[10px] text-gray-400 mt-1 italic">Set shift to 'Both' to customize evening quantity</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {field('Route / Area', 'route_area', 'text', { placeholder: 'Ex: Sector 14' })}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
               <select {...register('status')} className="input">
@@ -131,6 +157,8 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
               </select>
             </div>
           </div>
+
+
         </ModalBody>
 
         <ModalFooter>
@@ -524,6 +552,7 @@ function CustomerCard({ customer, onLeave, onEdit, onDelete, onManageAccess, onV
   const shiftColors = {
     morning:    'badge-warning',
     evening:    'badge-info',
+    both:       'badge-purple',
     occasional: 'badge-neutral',
   };
 
@@ -561,7 +590,7 @@ function CustomerCard({ customer, onLeave, onEdit, onDelete, onManageAccess, onV
             {customer.status}
           </span>
           <span className={cn('badge', shiftColors[customer.shift] || 'badge-neutral')}>
-            {customer.shift === 'morning' ? '☀️' : customer.shift === 'evening' ? '🌙' : '🔄'} {customer.shift}
+            {customer.shift === 'morning' ? '☀️ Morning' : customer.shift === 'evening' ? '🌙 Evening' : customer.shift === 'both' ? '🌗 Both' : '🔄 Occasional'}
           </span>
         </div>
       </div>
@@ -696,7 +725,7 @@ export default function Customers() {
         c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (c.phone || '').includes(searchTerm);
       const matchStatus = statusFilter === 'all' || c.status === statusFilter;
-      const matchShift  = shiftFilter  === 'all' || c.shift  === shiftFilter;
+      const matchShift  = shiftFilter  === 'all' || c.shift  === shiftFilter || (shiftFilter === 'both' && c.shift === 'both');
       const matchRoute  = routeFilter  === 'all' || c.route_area === routeFilter;
       return matchSearch && matchStatus && matchShift && matchRoute;
     });
@@ -802,6 +831,7 @@ export default function Customers() {
               { value: 'all',       label: 'All Shifts' },
               { value: 'morning',   label: '☀️ Morning' },
               { value: 'evening',   label: '🌙 Evening' },
+              { value: 'both',      label: '🌗 Both' },
               { value: 'occasional',label: '🔄 Occasional' },
             ]}
             className="w-full sm:w-40"

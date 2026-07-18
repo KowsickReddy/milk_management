@@ -60,7 +60,7 @@ function DailySummaryBar({ deliveredList, pendingList, leaveList, totalMilk }) {
 }
 
 // ── Delivery Card ──────────────────────────────────────────────────────-─
-function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset }) {
+function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, shiftContext }) {
   const [extraQty,   setExtraQty]   = useState('');
   const [showExtra,  setShowExtra]  = useState(false);
   const [deliverQty, setDeliverQty] = useState('');
@@ -70,11 +70,19 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
   const isLeave      = status === 'leave';
   const isPending    = status === 'pending';
   const isLongLeave  = delivery?.source === 'leave_request';
-  const defaultQty   = parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+
+  // For 'both' shift customers, use shiftContext to determine which shift this card represents
+  const effectiveShift = shiftContext || customer.shift || 'morning';
+  
+  // Select the right default quantity based on the effective shift
+  const isEvening = effectiveShift === 'evening';
+  const defaultQty = isEvening && customer.evening_milk_quantity
+    ? parseFloat(customer.evening_milk_quantity)
+    : parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
   const scheduledQty = defaultQty;
   const extraMilk    = parseFloat(delivery?.extra_milk || 0);
 
-  const shiftIcon = customer.shift === 'evening'
+  const shiftIcon = isEvening
     ? <Moon className="w-3 h-3 text-indigo-500" />
     : <Coffee className="w-3 h-3 text-amber-500" />;
 
@@ -100,7 +108,7 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
             <h3 className="font-black text-slate-900 text-[15px] tracking-tight leading-none">#{customer.id} {customer.name}</h3>
             <div className="flex items-center gap-2 mt-2">
               <span className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                {shiftIcon} {customer.shift}
+                {shiftIcon} {customer.shift === 'both' ? effectiveShift : customer.shift}
               </span>
               {customer.phone && (
                 <span className="text-[10px] font-bold text-slate-300 tracking-tighter">📞 {customer.phone}</span>
@@ -165,7 +173,7 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
               <button
                 onClick={() => {
                   const qty = parseFloat(deliverQty || defaultQty);
-                  onQuickDeliver(customer, qty);
+                  onQuickDeliver(customer, qty, effectiveShift, isEvening);
                 }}
                 className="w-full btn btn-primary flex items-center justify-center gap-2 py-4 shadow-lg shadow-indigo-100 active:scale-95"
               >
@@ -173,7 +181,7 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
                 MARK AS DELIVERED
               </button>
               <div className="grid grid-cols-2 gap-2.5">
-              <Button variant="outline" onClick={() => onAction(customer, 'leave', 0, 0)} className="border-slate-100 text-slate-500 py-3.5 bg-slate-50/30">
+              <Button variant="outline" onClick={() => onAction(customer, 'leave', 0, 0, effectiveShift)} className="border-slate-100 text-slate-500 py-3.5 bg-slate-50/30">
                 <CalendarOff className="w-4 h-4" />
                 Leave
               </Button>
@@ -207,7 +215,7 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
               />
               <button
                 onClick={() => {
-                  onAction(customer, 'extra', scheduledQty, parseFloat(extraQty || 0));
+                  onAction(customer, 'extra', defaultQty, parseFloat(extraQty || 0), effectiveShift);
                   setExtraQty('');
                   setShowExtra(false);
                 }}
@@ -269,7 +277,10 @@ export default function Deliveries() {
 
   const activeCustomers = useMemo(() => {
     let result = customers.filter(c => c.status === 'active');
-    if (selectedShift !== 'all') result = result.filter(c => c.shift === selectedShift);
+    if (selectedShift !== 'all') {
+      // 'both' shift customers match both morning and evening filters
+      result = result.filter(c => c.shift === selectedShift || c.shift === 'both');
+    }
     if (selectedRoute !== 'all') result = result.filter(c => c.route_area === selectedRoute);
     return result;
   }, [customers, selectedShift, selectedRoute]);
@@ -282,57 +293,80 @@ export default function Deliveries() {
   const { deliveredList, pendingList, leaveList, totalMilk } = useMemo(() => {
     const dList = [], pList = [], lList = [];
     let milk = 0;
-    
+
     activeCustomers.forEach(customer => {
-      // Robust matching: prioritize explicit delivery entries
-      const delivery = deliveries.find(d => 
-        Number(d.customer_id) === Number(customer.id)
-      );
-      
-      const status   = getDeliveryStatus(delivery);
-      if (status === 'delivered' || status === 'extra') {
-        dList.push({ customer, delivery });
-        milk += parseFloat(delivery?.delivered_quantity || 0) + parseFloat(delivery?.extra_milk || 0);
-      } else if (status === 'leave') {
-        lList.push({ customer, delivery });
-      } else {
-        pList.push({ customer, delivery: null });
-      }
+      // For 'both' shift customers, generate TWO entries (one per shift)
+      const shifts = customer.shift === 'both' ? ['morning', 'evening'] : [customer.shift || 'morning'];
+
+      shifts.forEach(shift => {
+        // Match by customer_id AND delivery_shift
+        const delivery = deliveries.find(d => 
+          Number(d.customer_id) === Number(customer.id) &&
+          (d.delivery_shift || 'morning') === shift
+        );
+        
+        // Calculate the right quantity for this shift
+        const isEvening = shift === 'evening';
+        const shiftQty = isEvening && customer.evening_milk_quantity
+          ? parseFloat(customer.evening_milk_quantity)
+          : parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+
+        const enhancedCustomer = { ...customer, _shiftQty: shiftQty, _shiftContext: shift };
+        const status = getDeliveryStatus(delivery);
+
+        if (status === 'delivered' || status === 'extra') {
+          dList.push({ customer: enhancedCustomer, delivery });
+          milk += parseFloat(delivery?.delivered_quantity || 0) + parseFloat(delivery?.extra_milk || 0);
+        } else if (status === 'leave') {
+          lList.push({ customer: enhancedCustomer, delivery });
+        } else {
+          pList.push({ customer: enhancedCustomer, delivery: null });
+        }
+      });
     });
     
     return { deliveredList: dList, pendingList: pList, leaveList: lList, totalMilk: milk };
   }, [activeCustomers, deliveries]);
 
-  const buildPayload = (customer, status, baseQuantity, extraMilk) => ({
+  const buildPayload = (customer, status, baseQuantity, extraMilk, deliveryShift) => ({
     customer_id:        Number(customer.id),
     customer_name:      customer.name,
     date:               selectedDate,
-    scheduled_quantity: parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0),
+    scheduled_quantity: parseFloat(baseQuantity || 0),
     delivered_quantity: status === 'leave' ? 0 : parseFloat(baseQuantity || 0),
     status,
     delivered:          status === 'delivered' || status === 'extra',
     leave:              status === 'leave',
     extra_milk:         status === 'leave' ? 0 : parseFloat(extraMilk || 0),
-    delivery_shift:     customer.shift || 'morning',
+    delivery_shift:     deliveryShift || customer.shift || 'morning',
     is_deleted:         false,
   });
 
-  const handleQuickDeliver = async (customer, customQty) => {
-    const qty = customQty || parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
-    const payload = buildPayload(customer, 'delivered', qty, 0);
+  const handleQuickDeliver = async (customer, customQty, deliveryShift, isEvening) => {
+    const shift = deliveryShift || customer.shift || 'morning';
+    const eveningQty = isEvening && customer.evening_milk_quantity
+      ? parseFloat(customer.evening_milk_quantity)
+      : null;
+    const defaultQty = eveningQty || parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+    const qty = customQty || defaultQty;
+    const payload = buildPayload(customer, 'delivered', qty, 0, shift);
     
     // 1. Instant Cache Update
     queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
+      // For 'both' customers, match by customer_id + delivery_shift
       const entry = { 
         ...payload, 
         id: `temp-${Date.now()}`, 
         delivered: true, 
         leave: false,
         status: 'delivered',
-        session: customer.shift || 'morning',
-        delivery_shift: customer.shift || 'morning'
+        session: shift,
+        delivery_shift: shift
       };
-      const idx = old.findIndex(d => Number(d.customer_id) === Number(customer.id));
+      const idx = old.findIndex(d => 
+        Number(d.customer_id) === Number(customer.id) && 
+        (d.delivery_shift || 'morning') === shift
+      );
       if (idx > -1) {
         const next = [...old];
         next[idx] = entry;
@@ -343,7 +377,7 @@ export default function Deliveries() {
 
     try {
       await api.deliveries.create(payload);
-      toast.success(`Marked #${customer.id} ${customer.name}`);
+      toast.success(`Marked #${customer.id} ${customer.name} (${shift})`);
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -370,12 +404,13 @@ export default function Deliveries() {
     }
   };
 
-  const handleActionClick = (customer, status, baseQuantity, extraMilk) => {
+  const handleActionClick = (customer, status, baseQuantity, extraMilk, deliveryShift) => {
+    const shift = deliveryShift || customer._shiftContext || customer.shift || 'morning';
     setModalState({
       isOpen: true,
       customer,
       action:  status,
-      payload: buildPayload(customer, status, baseQuantity, extraMilk),
+      payload: buildPayload(customer, status, baseQuantity, extraMilk, shift),
     });
   };
 
@@ -606,7 +641,7 @@ export default function Deliveries() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {pendingList.map(({ customer }) => (
-                    <DeliveryCard key={customer.id} customer={customer} delivery={null} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} />
+                    <DeliveryCard key={`${customer.id}-${customer._shiftContext || 'morning'}`} customer={customer} delivery={null} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} shiftContext={customer._shiftContext} />
                   ))}
                 </div>
               </section>
@@ -620,7 +655,7 @@ export default function Deliveries() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {deliveredList.map(({ customer, delivery }) => (
-                    <DeliveryCard key={customer.id} customer={customer} delivery={delivery} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} />
+                    <DeliveryCard key={`${customer.id}-${customer._shiftContext || 'morning'}`} customer={customer} delivery={delivery} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} shiftContext={customer._shiftContext} />
                   ))}
                 </div>
               </section>
@@ -634,7 +669,7 @@ export default function Deliveries() {
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 opacity-80">
                   {leaveList.map(({ customer, delivery }) => (
-                    <DeliveryCard key={customer.id} customer={customer} delivery={delivery} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} />
+                    <DeliveryCard key={`${customer.id}-${customer._shiftContext || 'morning'}`} customer={customer} delivery={delivery} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} shiftContext={customer._shiftContext} />
                   ))}
                 </div>
               </section>
