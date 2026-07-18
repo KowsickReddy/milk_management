@@ -296,7 +296,11 @@ export default function Deliveries() {
 
     activeCustomers.forEach(customer => {
       // For 'both' shift customers, generate TWO entries (one per shift)
-      const shifts = customer.shift === 'both' ? ['morning', 'evening'] : [customer.shift || 'morning'];
+      const possibleShifts = customer.shift === 'both' ? ['morning', 'evening'] : [customer.shift || 'morning'];
+      // When filtering by a specific shift, only show entries for that shift
+      const shifts = selectedShift !== 'all'
+        ? possibleShifts.filter(s => s === selectedShift)
+        : possibleShifts;
 
       shifts.forEach(shift => {
         // Match by customer_id AND delivery_shift
