@@ -25,6 +25,14 @@ const ComplaintRepository = {
       [alertType, message]
     );
   },
+
+  async updateStatus(id, status) {
+    const result = await getPool().query(
+      'UPDATE complaints SET status = $1 WHERE id = $2 RETURNING *',
+      [status, id]
+    );
+    return result.rows[0] || null;
+  },
 };
 
 module.exports = ComplaintRepository;

@@ -27,6 +27,7 @@ const AccessManagement = lazy(() => import('./pages/AccessManagement'));
 const ManageLeaves     = lazy(() => import('./pages/ManageLeaves'));
 const Expenses         = lazy(() => import('./pages/Expenses'));
 const MilkCalculator   = lazy(() => import('./pages/MilkCalculator'));
+const About            = lazy(() => import('./pages/About'));
 
 // Customer Portal Pages
 const PortalDashboard  = lazy(() => import('./pages/portal/PortalDashboard'));
@@ -341,6 +342,7 @@ function AppContent() {
         case 'farm-mgmt':  return <FarmManagement {...props} />;
         case 'access-mgmt':return <AccessManagement {...props} />;
         case 'leaves':     return <ManageLeaves     {...props} />;
+        case 'about':      return <About        {...props} />;
         default:           return <Dashboard  {...props} />;
       }
     }
@@ -368,7 +370,7 @@ function AppContent() {
     billing: 'Billing', leaves: 'Manage Leaves', expenses: 'Expenses',
     'farm-mgmt': 'Farm Management', 'access-mgmt': 'Portal Access',
     reports: 'Reports', 'access-logs': 'Access Logs', calculator: 'Calculator',
-    bills: 'My Bills', support: 'Support',
+    about: 'About', bills: 'My Bills', support: 'Support',
   };
   const currentPage = pageLabels[activeTab] || 'Dashboard';
 

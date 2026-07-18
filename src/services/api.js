@@ -108,6 +108,7 @@ export const usersAPI = {
 export const adminAPI = {
   getLoginLogs: () => apiCall('/api/admin/login-logs'),
   getComplaints: () => apiCall('/api/admin/complaints'),
+  updateComplaintStatus: (id, status) => apiCall(`/api/admin/complaints/${id}/status`, { method: 'PATCH', body: { status } }),
   getAlerts: () => apiCall('/api/admin/alerts'),
 };
 

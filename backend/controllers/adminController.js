@@ -18,6 +18,13 @@ const adminController = {
     const alerts = await AdminService.getAlerts();
     res.json(alerts);
   }),
+
+  updateComplaintStatus: asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const { status } = req.body;
+    const complaint = await AdminService.updateComplaintStatus(id, status);
+    res.json(complaint);
+  }),
 };
 
 module.exports = adminController;

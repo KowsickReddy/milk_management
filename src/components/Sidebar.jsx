@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Truck, Receipt, BarChart3, LogOut, X, Milk,
   MessageSquare, Shield, Fingerprint, CalendarDays, Wallet, Calculator,
-  ChevronLeft, Search, Settings
+  ChevronLeft, Search, Settings, Info, Camera
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -16,9 +16,10 @@ const adminNavItems = [
   { id: 'farm-mgmt',   label: 'Farm Management', icon: Milk },
   { id: 'billing',     label: 'Billing',         icon: Receipt },
   { id: 'access-mgmt', label: 'Portal Access',   icon: Fingerprint },
-  { id: 'reports',     label: 'Reports',         icon: BarChart3 },
   { id: 'access-logs', label: 'Access Logs',     icon: Shield },
+  { id: 'reports',     label: 'Reports',         icon: BarChart3 },
   { id: 'calculator',  label: 'Calculator',      icon: Calculator },
+  { id: 'about',       label: 'About',           icon: Info },
 ];
 
 const customerNavItems = [
@@ -84,20 +85,23 @@ export default function Sidebar({ activeTab, onTabChange, isOpen: mobileOpen, on
         </button>
       </div>
 
-      {/* User Profile */}
-      <div className={cn(
-        'px-4 py-3 border-b border-slate-100',
-        collapsed && 'flex justify-center'
-      )}>
-        <div className={cn(
-          'flex items-center gap-3',
-          collapsed && 'flex-col'
+      {/* User Profile */}        <div className={cn(
+          'px-4 py-3 border-b border-slate-100',
+          collapsed && 'flex justify-center'
         )}>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-100 to-indigo-50 flex items-center justify-center shrink-0 border border-indigo-200/50">
-            <span className="text-xs font-black text-indigo-600">
-              {user?.full_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || 'U'}
-            </span>
-          </div>
+          <div className={cn(
+            'flex items-center gap-3',
+            collapsed && 'flex-col'
+          )}>
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-100 to-indigo-50 flex items-center justify-center shrink-0 border border-indigo-200/50 overflow-hidden">
+              {user?.profile_photo ? (
+                <img src={user.profile_photo} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-black text-indigo-600">
+                  {user?.full_name?.[0]?.toUpperCase() || user?.username?.[0]?.toUpperCase() || 'U'}
+                </span>
+              )}
+            </div>
           <AnimatePresence>
             {!collapsed && (
               <motion.div

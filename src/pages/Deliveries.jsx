@@ -63,13 +63,15 @@ function DailySummaryBar({ deliveredList, pendingList, leaveList, totalMilk }) {
 function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset }) {
   const [extraQty,   setExtraQty]   = useState('');
   const [showExtra,  setShowExtra]  = useState(false);
+  const [deliverQty, setDeliverQty] = useState('');
 
   const status       = getDeliveryStatus(delivery);
   const isDelivered  = status === 'delivered' || status === 'extra';
   const isLeave      = status === 'leave';
   const isPending    = status === 'pending';
   const isLongLeave  = delivery?.source === 'leave_request';
-  const scheduledQty = parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+  const defaultQty   = parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+  const scheduledQty = defaultQty;
   const extraMilk    = parseFloat(delivery?.extra_milk || 0);
 
   const shiftIcon = customer.shift === 'evening'
@@ -146,8 +148,25 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset })
         <div className="mt-5 pt-5 border-t border-slate-50 space-y-2.5">
           {isPending ? (
             <>
+              {/* Quantity adjuster */}
+              <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
+                <Milk className="w-4 h-4 text-indigo-400 shrink-0" />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Qty:</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  defaultValue={defaultQty}
+                  onChange={(e) => setDeliverQty(e.target.value)}
+                  className="flex-1 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                />
+                <span className="text-xs font-bold text-slate-400">L</span>
+              </div>
               <button
-                onClick={() => onQuickDeliver(customer)}
+                onClick={() => {
+                  const qty = parseFloat(deliverQty || defaultQty);
+                  onQuickDeliver(customer, qty);
+                }}
                 className="w-full btn btn-primary flex items-center justify-center gap-2 py-4 shadow-lg shadow-indigo-100 active:scale-95"
               >
                 <Check className="w-5 h-5 stroke-[3px]" />
@@ -298,8 +317,8 @@ export default function Deliveries() {
     is_deleted:         false,
   });
 
-  const handleQuickDeliver = async (customer) => {
-    const qty = parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+  const handleQuickDeliver = async (customer, customQty) => {
+    const qty = customQty || parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
     const payload = buildPayload(customer, 'delivered', qty, 0);
     
     // 1. Instant Cache Update

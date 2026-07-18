@@ -6,29 +6,29 @@ const { getPool } = require('../config/database');
 const UserRepository = {
   async findAll() {
     const result = await getPool().query(
-      'SELECT id, username, role, full_name, phone, is_active, last_login, created_at FROM users ORDER BY username ASC'
+      'SELECT id, username, role, full_name, phone, profile_photo, is_active, last_login, created_at FROM users ORDER BY username ASC'
     );
     return result.rows;
   },
 
   async findByUsername(username) {
     const result = await getPool().query(
-      'SELECT id, username, pin, role, full_name, phone, is_active FROM users WHERE username = $1 AND is_active = TRUE',
+      'SELECT id, username, pin, role, full_name, phone, profile_photo, is_active FROM users WHERE username = $1 AND is_active = TRUE',
       [username]
     );
     return result.rows[0] || null;
   },
 
   async findById(id) {
-    const result = await getPool().query('SELECT id, username, role, full_name, phone, is_active FROM users WHERE id = $1', [id]);
+    const result = await getPool().query('SELECT id, username, role, full_name, phone, profile_photo, is_active FROM users WHERE id = $1', [id]);
     return result.rows[0] || null;
   },
 
   async create(data) {
-    const { username, hashedPin, role, full_name, phone, is_active } = data;
+    const { username, hashedPin, role, full_name, phone, is_active, profile_photo } = data;
     const result = await getPool().query(
-      'INSERT INTO users (username, pin, role, full_name, phone, is_active) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, username, role, full_name, phone, is_active',
-      [username, hashedPin, role || 'worker', full_name, phone || null, is_active !== undefined ? is_active : true]
+      'INSERT INTO users (username, pin, role, full_name, phone, profile_photo, is_active) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, username, role, full_name, phone, profile_photo, is_active',
+      [username, hashedPin, role || 'worker', full_name, phone || null, profile_photo || null, is_active !== undefined ? is_active : true]
     );
     return result.rows[0];
   },
@@ -44,6 +44,7 @@ const UserRepository = {
     if (data.full_name !== undefined) { updates.push(`full_name = $${idx}`); params.push(data.full_name); idx++; }
     if (data.phone !== undefined) { updates.push(`phone = $${idx}`); params.push(data.phone || null); idx++; }
     if (data.is_active !== undefined) { updates.push(`is_active = $${idx}`); params.push(data.is_active); idx++; }
+    if (data.profile_photo !== undefined) { updates.push(`profile_photo = $${idx}`); params.push(data.profile_photo); idx++; }
 
     if (updates.length === 0) return null;
 

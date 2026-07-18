@@ -11,6 +11,7 @@ const migrations = [
   require('./005_bcrypt_pins'),
   require('./006_bill_periods'),
   require('./007_farm_schema'),
+  require('./008_profile_photos'),
 ];
 
 async function runMigrations() {

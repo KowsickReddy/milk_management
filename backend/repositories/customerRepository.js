@@ -3,7 +3,7 @@
 
 const { getPool } = require('../config/database');
 
-const SELECT_FIELDS = 'id, name, phone, address, daily_milk_quantity, milk_rate_per_liter, default_milk_quantity, shift, status, customer_type, credit_balance, created_at, route_area';
+const SELECT_FIELDS = 'id, name, phone, address, daily_milk_quantity, milk_rate_per_liter, default_milk_quantity, shift, status, customer_type, credit_balance, created_at, route_area, profile_photo';
 
 const CustomerRepository = {
   async findAll() {
@@ -23,26 +23,26 @@ const CustomerRepository = {
 
   async findByPhone(phone) {
     const result = await getPool().query(
-      'SELECT id, name, phone, pin, status, daily_milk_quantity, shift, customer_type, credit_balance FROM customers WHERE phone = $1',
+      'SELECT id, name, phone, pin, status, daily_milk_quantity, shift, customer_type, credit_balance, profile_photo FROM customers WHERE phone = $1',
       [phone]
     );
     return result.rows[0] || null;
   },
 
   async create(data) {
-    const { name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area } = data;
+    const { name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, profile_photo } = data;
     const result = await getPool().query(
-      'INSERT INTO customers (name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *',
-      [name, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', daily_milk_quantity || 0, customer_type || 'regular', credit_balance || 0, route_area || null]
+      'INSERT INTO customers (name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area, profile_photo) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *',
+      [name, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', daily_milk_quantity || 0, customer_type || 'regular', credit_balance || 0, route_area || null, profile_photo || null]
     );
     return { id: result.rows[0].id, ...data };
   },
 
   async update(id, data) {
-    const { name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, default_milk_quantity } = data;
+    const { name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, default_milk_quantity, profile_photo } = data;
     const result = await getPool().query(
-      'UPDATE customers SET name=$1, phone=$2, address=$3, daily_milk_quantity=$4, milk_rate_per_liter=$5, shift=$6, status=$7, customer_type=$8, credit_balance=$9, route_area=$10, default_milk_quantity=$11 WHERE id=$12',
-      [name, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', customer_type || 'regular', credit_balance || 0, route_area || null, default_milk_quantity || daily_milk_quantity || 0, id]
+      'UPDATE customers SET name=$1, phone=$2, address=$3, daily_milk_quantity=$4, milk_rate_per_liter=$5, shift=$6, status=$7, customer_type=$8, credit_balance=$9, route_area=$10, default_milk_quantity=$11, profile_photo=$12 WHERE id=$13',
+      [name, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', customer_type || 'regular', credit_balance || 0, route_area || null, default_milk_quantity || daily_milk_quantity || 0, profile_photo || null, id]
     );
     return result.rowCount > 0;
   },

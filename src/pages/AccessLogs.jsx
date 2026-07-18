@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Shield, User, Clock, Globe, Search, RefreshCw,
   ChevronRight, Plus, Trash2, Key, Smartphone,
-  ShieldCheck, ShieldAlert, UserCheck, Eye, EyeOff, Fingerprint
+  ShieldCheck, ShieldAlert, UserCheck, Eye, EyeOff, Fingerprint,
+  MessageSquare, AlertCircle, CheckCircle2
 } from 'lucide-react';
 import api from '../services/api';
 import { Card, Button, Input, Select, ConfirmModal } from '../ui';
@@ -16,6 +17,7 @@ const TABS = [
   { id: 'logs',    label: 'Login Logs',   icon: Clock },
   { id: 'staff',   label: 'Staff Accounts', icon: User },
   { id: 'portal',  label: 'Customer Access', icon: Key },
+  { id: 'complaints', label: 'Complaints',    icon: MessageSquare },
 ];
 
 export default function AccessLogs() {
@@ -57,6 +59,7 @@ export default function AccessLogs() {
         {activeTab === 'logs' && <LoginLogsPanel />}
         {activeTab === 'staff' && <StaffAccountsPanel />}
         {activeTab === 'portal' && <CustomerAccessPanel />}
+        {activeTab === 'complaints' && <ComplaintsPanel />}
       </main>
     </div>
   );
@@ -166,7 +169,7 @@ function LoginLogsPanel() {
 function StaffAccountsPanel() {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ username: '', pin: '', role: 'worker', full_name: '', phone: '' });
+  const [form, setForm] = useState({ username: '', pin: '', role: 'worker', full_name: '', phone: '', profile_photo: '' });
   const [bioUser, setBioUser] = useState(null); // { id, username } to show fingerprint manager
   const [showPin, setShowPin] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, username }
@@ -181,7 +184,7 @@ function StaffAccountsPanel() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setShowForm(false);
-      setForm({ username: '', pin: '', role: 'worker', full_name: '', phone: '' });
+      setForm({ username: '', pin: '', role: 'worker', full_name: '', phone: '', profile_photo: '' });
       toast.success('Staff account created');
     },
     onError: (err) => toast.error(err.message),
@@ -243,6 +246,7 @@ function StaffAccountsPanel() {
               ]} />
             <Input value={form.full_name} onChange={(e) => setForm(p => ({ ...p, full_name: e.target.value }))} placeholder="Full name" />
             <Input value={form.phone} onChange={(e) => setForm(p => ({ ...p, phone: e.target.value }))} placeholder="Phone" />
+            <Input value={form.profile_photo} onChange={(e) => setForm(p => ({ ...p, profile_photo: e.target.value }))} placeholder="Profile photo URL (optional)" />
           </div>
           <div className="flex gap-2 justify-end">
             <Button variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
@@ -269,8 +273,12 @@ function StaffAccountsPanel() {
             <div key={user.id}>
               <Card className="p-4 flex items-center justify-between group border-slate-100">
                 <div className="flex items-center gap-4 flex-1 min-w-0">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg shrink-0">
-                    {(user.full_name || user.username || '?')[0].toUpperCase()}
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg shrink-0 overflow-hidden">
+                    {user.profile_photo ? (
+                      <img src={user.profile_photo} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{(user.full_name || user.username || '?')[0].toUpperCase()}</span>
+                    )}
                   </div>
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -321,12 +329,117 @@ function StaffAccountsPanel() {
         onConfirm={confirmDelete}
         title="Delete Staff Account"
         message={`Are you sure you want to delete account "${deleteTarget?.username}"? This cannot be undone.`}
-        confirmLabel="Delete"
+        confirmText="Delete"
         variant="danger"
       />
     </>
   );
-  // ── Tab 3: Customer Portal Access ─────────────────────────────────────────
+}
+
+// ── Tab 4: Complaints Panel ──────────────────────────────────────────────
+function ComplaintsPanel() {
+  const { data: complaints = [], isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['complaints'],
+    queryFn: () => api.admin.getComplaints(),
+  });
+
+  const queryClient = useQueryClient();
+
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ id, status }) => api.admin.updateComplaintStatus(id, status),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['complaints'] });
+      toast.success('Status updated');
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <p className="text-xs text-gray-500 font-medium">{complaints.length} complaint{complaints.length !== 1 ? 's' : ''}</p>
+          <span className="text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-700">
+            {complaints.filter(c => c.status === 'open' || c.status === 'pending').length} unresolved
+          </span>
+        </div>
+        <button onClick={() => refetch()} disabled={isFetching}
+          className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 transition-all">
+          <RefreshCw className={cn("w-5 h-5", isFetching && "animate-spin")} />
+        </button>
+      </div>
+
+      {isLoading ? (
+        [...Array(4)].map((_, i) => <div key={i} className="skeleton h-28 w-full rounded-2xl" />)
+      ) : isError ? (
+        <div className="text-center py-16 bg-white/40 rounded-3xl border-2 border-dashed border-red-200">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+          <p className="font-bold text-red-600">Failed to load complaints</p>
+          <Button onClick={() => refetch()} className="mt-4">Retry</Button>
+        </div>
+      ) : complaints.length === 0 ? (
+        <Card className="p-16 text-center border-dashed border-2">
+          <MessageSquare className="w-16 h-16 mx-auto text-slate-200 mb-4" />
+          <p className="font-bold text-slate-400 text-sm">No complaints yet</p>
+          <p className="text-xs text-slate-300 mt-1">Customer complaints will appear here</p>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {complaints.map((complaint) => (
+            <Card key={complaint.id} className="p-5 border-slate-100 hover:border-amber-200 transition-all">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4 flex-1 min-w-0">
+                  <div className={cn(
+                    'w-12 h-12 rounded-2xl flex items-center justify-center shrink-0',
+                    complaint.status === 'open' || complaint.status === 'pending'
+                      ? 'bg-amber-50 text-amber-600'
+                      : complaint.status === 'resolved'
+                        ? 'bg-emerald-50 text-emerald-600'
+                        : 'bg-slate-100 text-slate-500'
+                  )}>
+                    <MessageSquare className="w-6 h-6" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-gray-900 text-sm">{complaint.subject}</h3>
+                      <span className={cn(
+                        'text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md tracking-tighter',
+                        complaint.status === 'open' || complaint.status === 'pending'
+                          ? 'bg-amber-100 text-amber-700'
+                          : complaint.status === 'resolved'
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-slate-100 text-slate-600'
+                      )}>
+                        {complaint.status || 'open'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2 leading-relaxed">{complaint.message}</p>
+                    <div className="flex items-center gap-3 mt-3 text-[10px] text-gray-400">
+                      <span className="font-medium">👤 {complaint.customer_name}</span>
+                      <span>📅 {complaint.created_at ? format(new Date(complaint.created_at), 'MMM dd, yyyy · hh:mm a') : '—'}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-1 shrink-0">
+                  {(complaint.status === 'open' || complaint.status === 'pending') && (
+                    <Button
+                      size="sm"
+                      variant="success"
+                      className="text-[9px] uppercase tracking-widest font-black"
+                      onClick={() => updateStatusMutation.mutate({ id: complaint.id, status: 'resolved' })}
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      Resolve
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Tab 3: Customer Portal Access ─────────────────────────────────────────
