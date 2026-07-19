@@ -12,6 +12,7 @@ router.use(authenticate);
 router.get('/dashboard/:customerId',     requireSelfOrStaff('customerId'), portalController.getDashboard);
 router.get('/deliveries/:customerId',    requireSelfOrStaff('customerId'), portalController.getDeliveries);
 router.get('/bills/:customerId',         requireSelfOrStaff('customerId'), portalController.getBills);
+router.get('/calendar/:customerId',      requireSelfOrStaff('customerId'), portalController.getCalendar);
 router.post('/update-quantity',          requireSelfOrStaff('customer_id'), portalController.updateQuantity);
 router.post('/complaints',               requireSelfOrStaff('customer_id'), portalController.createComplaint);
 
