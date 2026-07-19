@@ -226,11 +226,26 @@ export const webauthnAPI = {
   deleteCredential: (id)     => apiCall(`/api/auth/webauthn/credentials/${id}`, { method: 'DELETE' }),
 };
 
+// ── Notes ─────────────────────────────────────────────────────────────────
+const notesAPI = {
+  getAll: ()         => apiCall('/api/notes'),
+  getById: (id)      => apiCall(`/api/notes/${id}`),
+  create: (data)     => apiCall('/api/notes', { method: 'POST', body: data }),
+  update: (id, data) => apiCall(`/api/notes/${id}`, { method: 'PUT', body: data }),
+  delete: (id)       => apiCall(`/api/notes/${id}`, { method: 'DELETE' }),
+};
+
+// ── Portal Calendar ──────────────────────────────────────────────────────
+const portalCalendarAPI = {
+  get: (customerId, year, month) => apiCall(`/api/portal/calendar/${customerId}?year=${year}&month=${month}`),
+};
+
 const api = {
   customers:  customersAPI,
   users:      usersAPI,
   admin:      adminAPI,
-  portal:     portalAPI,
+  portal:     { ...portalAPI, getCalendar: portalCalendarAPI.get },
+  notes:      notesAPI,
   cattle:     cattleAPI,
   feed:       feedAPI,
   deliveries: deliveriesAPI,

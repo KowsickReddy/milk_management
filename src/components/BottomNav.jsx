@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Users, Truck, Receipt, BarChart3, MessageSquare } from 'lucide-react';
+import { Home, Users, Truck, Receipt, BarChart3, MessageSquare, Calendar } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { cn } from '../lib/utils';
 
@@ -10,6 +10,7 @@ export default function BottomNav({ activeTab, onTabChange, user }) {
     { id: 'dashboard',  icon: Home,          label: 'Home' },
     { id: 'deliveries', icon: Truck,         label: 'Logs' },
     { id: 'bills',      icon: Receipt,       label: 'Bills' },
+    { id: 'calendar',   icon: Calendar,      label: 'Calendar' },
     { id: 'support',    icon: MessageSquare, label: 'Support' },
   ] : [
     { id: 'dashboard',  icon: Home,     label: 'Home' },

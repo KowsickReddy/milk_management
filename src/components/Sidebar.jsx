@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Truck, Receipt, BarChart3, LogOut, X, Milk,
   MessageSquare, Shield, Fingerprint, CalendarDays, Wallet, Calculator,
-  ChevronLeft, Search, Settings, Info, Camera
+  ChevronLeft, Search, Info, Camera, StickyNote
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -19,6 +19,7 @@ const adminNavItems = [
   { id: 'access-logs', label: 'Access Logs',     icon: Shield },
   { id: 'reports',     label: 'Reports',         icon: BarChart3 },
   { id: 'calculator',  label: 'Calculator',      icon: Calculator },
+  { id: 'notes',       label: 'Notes',           icon: StickyNote },
   { id: 'about',       label: 'About',           icon: Info },
 ];
 
@@ -26,6 +27,7 @@ const customerNavItems = [
   { id: 'dashboard',  label: 'My Dashboard',  icon: LayoutDashboard },
   { id: 'deliveries', label: 'My Deliveries', icon: Truck },
   { id: 'bills',      label: 'My Bills',      icon: Receipt },
+  { id: 'calendar',   label: 'Calendar',      icon: CalendarDays },
   { id: 'support',    label: 'Support',       icon: MessageSquare },
 ];
 

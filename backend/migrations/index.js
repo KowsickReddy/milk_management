@@ -13,6 +13,8 @@ const migrations = [
   require('./007_farm_schema'),
   require('./008_profile_photos'),
   require('./009_both_shifts'),
+  require('./010_customer_title'),
+  require('./011_admin_notes'),
 ];
 
 async function runMigrations() {

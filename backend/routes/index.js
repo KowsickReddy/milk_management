@@ -18,6 +18,8 @@ const adminRoutes = require('./adminRoutes');
 const cattleRoutes = require('./cattleRoutes');
 const feedRoutes = require('./feedRoutes');
 const webauthnRoutes = require('./webauthnRoutes');
+const notesRoutes = require('./notesRoutes');
+const portalCalendarRoutes = require('./portalCalendarRoutes');
 
 function registerRoutes(app) {
   // Health (no auth)
@@ -44,8 +46,13 @@ function registerRoutes(app) {
   app.use('/api/admin', adminRoutes);
   app.use('/api/cattle', cattleRoutes);
   app.use('/api/feed', feedRoutes);
+  app.use('/api/notes', notesRoutes);
+
+  // Portal calendar (separate route for cleaner resolution)
+  app.use('/api/portal/calendar', portalCalendarRoutes);
 
   // Legacy stats endpoint
+
   const analyticsController = require('../controllers/analyticsController');
   const authenticate = require('../middleware/authenticate');
   const { requireRole } = require('../middleware/authorize');

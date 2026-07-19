@@ -28,12 +28,14 @@ const ManageLeaves     = lazy(() => import('./pages/ManageLeaves'));
 const Expenses         = lazy(() => import('./pages/Expenses'));
 const MilkCalculator   = lazy(() => import('./pages/MilkCalculator'));
 const About            = lazy(() => import('./pages/About'));
+const Notes            = lazy(() => import('./pages/Notes'));
 
 // Customer Portal Pages
 const PortalDashboard  = lazy(() => import('./pages/portal/PortalDashboard'));
 const PortalDeliveries = lazy(() => import('./pages/portal/PortalDeliveries'));
 const PortalBills      = lazy(() => import('./pages/portal/PortalBills'));
 const PortalSupport    = lazy(() => import('./pages/portal/PortalSupport'));
+const PortalCalendar   = lazy(() => import('./pages/portal/PortalCalendar'));
 
 // ── Loading fallback ───────────────────────────────────────────────────────
 function LoadingFallback() {
@@ -343,6 +345,7 @@ function AppContent() {
         case 'access-mgmt':return <AccessManagement {...props} />;
         case 'leaves':     return <ManageLeaves     {...props} />;
         case 'about':      return <About        {...props} />;
+        case 'notes':      return <Notes        {...props} />;
         default:           return <Dashboard  {...props} />;
       }
     }
@@ -354,6 +357,7 @@ function AppContent() {
         case 'deliveries': return <PortalDeliveries {...props} />;
         case 'bills':      return <PortalBills      {...props} />;
         case 'support':    return <PortalSupport    {...props} />;
+        case 'calendar':   return <PortalCalendar   {...props} />;
         default:           return <PortalDashboard  {...props} />;
       }
     }
@@ -370,7 +374,7 @@ function AppContent() {
     billing: 'Billing', leaves: 'Manage Leaves', expenses: 'Expenses',
     'farm-mgmt': 'Farm Management', 'access-mgmt': 'Portal Access',
     reports: 'Reports', 'access-logs': 'Access Logs', calculator: 'Calculator',
-    about: 'About', bills: 'My Bills', support: 'Support',
+    about: 'About', notes: 'Notes', bills: 'My Bills', support: 'Support', calendar: 'Calendar',
   };
   const currentPage = pageLabels[activeTab] || 'Dashboard';
 

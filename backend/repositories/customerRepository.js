@@ -3,12 +3,12 @@
 
 const { getPool } = require('../config/database');
 
-const SELECT_FIELDS = 'id, name, phone, address, daily_milk_quantity, milk_rate_per_liter, default_milk_quantity, evening_milk_quantity, shift, status, customer_type, credit_balance, created_at, route_area, profile_photo';
+const SELECT_FIELDS = 'id, name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, default_milk_quantity, evening_milk_quantity, shift, status, customer_type, credit_balance, created_at, route_area, profile_photo';
 
 const CustomerRepository = {
   async findAll() {
     const result = await getPool().query(
-      `SELECT ${SELECT_FIELDS} FROM customers ORDER BY name ASC`
+      `SELECT ${SELECT_FIELDS} FROM customers ORDER BY id ASC`
     );
     return result.rows;
   },
@@ -30,19 +30,19 @@ const CustomerRepository = {
   },
 
   async create(data) {
-    const { name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity } = data;
+    const { name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity } = data;
     const result = await getPool().query(
-      'INSERT INTO customers (name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *',
-      [name, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', daily_milk_quantity || 0, customer_type || 'regular', credit_balance || 0, route_area || null, profile_photo || null, evening_milk_quantity || null]
+      'INSERT INTO customers (name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *',
+      [name, title || null, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', daily_milk_quantity || 0, customer_type || 'regular', credit_balance || 0, route_area || null, profile_photo || null, evening_milk_quantity || null]
     );
     return { id: result.rows[0].id, ...data };
   },
 
   async update(id, data) {
-    const { name, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, default_milk_quantity, profile_photo, evening_milk_quantity } = data;
+    const { name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, default_milk_quantity, profile_photo, evening_milk_quantity } = data;
     const result = await getPool().query(
-      'UPDATE customers SET name=$1, phone=$2, address=$3, daily_milk_quantity=$4, milk_rate_per_liter=$5, shift=$6, status=$7, customer_type=$8, credit_balance=$9, route_area=$10, default_milk_quantity=$11, profile_photo=$12, evening_milk_quantity=$13 WHERE id=$14',
-      [name, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', customer_type || 'regular', credit_balance || 0, route_area || null, default_milk_quantity || daily_milk_quantity || 0, profile_photo || null, evening_milk_quantity || null, id]
+      'UPDATE customers SET name=$1, title=$2, phone=$3, address=$4, daily_milk_quantity=$5, milk_rate_per_liter=$6, shift=$7, status=$8, customer_type=$9, credit_balance=$10, route_area=$11, default_milk_quantity=$12, profile_photo=$13, evening_milk_quantity=$14 WHERE id=$15',
+      [name, title || null, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', customer_type || 'regular', credit_balance || 0, route_area || null, default_milk_quantity || daily_milk_quantity || 0, profile_photo || null, evening_milk_quantity || null, id]
     );
     return result.rowCount > 0;
   },

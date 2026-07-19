@@ -18,6 +18,7 @@ import { getInitials, formatCurrency, cn, getMonthName } from '../lib/utils';
 
 // ── Validation schema ─────────────────────────────────────────────────────
 const schema = yup.object().shape({
+  title:               yup.string().optional().nullable(),
   name:                yup.string().required('Name is required').min(2),
   phone:               yup.string()
     .matches(/^[0-9]{10}$/, { message: 'Must be exactly 10 digits', excludeEmptyString: true })
@@ -42,7 +43,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
     resolver: yupResolver(schema),
     mode: 'onChange',
     defaultValues: editingCustomer || {
-      name: '', phone: '', address: '',
+      name: '', title: '', phone: '', address: '',
       daily_milk_quantity: '', milk_rate_per_liter: '',
       shift: 'morning', status: 'active', route_area: 'Default',
       evening_milk_quantity: '',
@@ -55,7 +56,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
   useEffect(() => {
     if (isOpen) {
       reset(editingCustomer || {
-        name: '', phone: '', address: '',
+        name: '', title: '', phone: '', address: '',
         daily_milk_quantity: '', milk_rate_per_liter: '',
         shift: 'morning', status: 'active', route_area: 'Default',
         evening_milk_quantity: '',
@@ -101,7 +102,29 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
       </ModalHeader>
       <form onSubmit={handleSubmit(mutation.mutate)} noValidate>
         <ModalBody className="space-y-4">
-          {field('Full Name', 'name')}
+          <div className="grid grid-cols-3 gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+              <select {...register('title')} className="input">
+                <option value="">—</option>
+                <option value="Mr.">Mr.</option>
+                <option value="Mrs.">Mrs.</option>
+                <option value="Ms.">Ms.</option>
+                <option value="Dr.">Dr.</option>
+                <option value="Shri">Shri</option>
+                <option value="Smt.">Smt.</option>
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+              <input
+                {...register('name')}
+                type="text"
+                className={cn('input', errors.name ? 'border-red-400 focus:ring-red-400/30 focus:border-red-400' : '')}
+              />
+              {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name.message}</p>}
+            </div>
+          </div>
           {field('Phone Number', 'phone', 'tel', { placeholder: '10-digit mobile' })}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
@@ -571,7 +594,7 @@ function CustomerCard({ customer, onLeave, onEdit, onDelete, onManageAccess, onV
             {getInitials(customer.name)}
           </div>
           <div>
-            <h3 className="font-bold text-gray-900 leading-tight">#{customer.id} {customer.name}</h3>
+            <h3 className="font-bold text-gray-900 leading-tight">#{customer.id} {customer.title ? customer.title + ' ' : ''}{customer.name}</h3>
             <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
               <Phone className="w-3 h-3" />
               <span>{customer.phone || 'No phone'}</span>
