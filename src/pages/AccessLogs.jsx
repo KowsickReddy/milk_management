@@ -4,7 +4,7 @@ import {
   Shield, User, Clock, Globe, Search, RefreshCw,
   ChevronRight, Plus, Trash2, Key, Smartphone,
   ShieldCheck, ShieldAlert, UserCheck, Eye, EyeOff, Fingerprint,
-  MessageSquare, AlertCircle, CheckCircle2
+  MessageSquare, AlertCircle, CheckCircle2, Activity
 } from 'lucide-react';
 import api from '../services/api';
 import { Card, Button, Input, Select, ConfirmModal } from '../ui';
@@ -17,6 +17,7 @@ const TABS = [
   { id: 'logs',    label: 'Login Logs',   icon: Clock },
   { id: 'staff',   label: 'Staff Accounts', icon: User },
   { id: 'portal',  label: 'Customer Access', icon: Key },
+  { id: 'audit',   label: 'Audit Trail',  icon: Activity },
   { id: 'complaints', label: 'Complaints',    icon: MessageSquare },
 ];
 
@@ -59,6 +60,7 @@ export default function AccessLogs() {
         {activeTab === 'logs' && <LoginLogsPanel />}
         {activeTab === 'staff' && <StaffAccountsPanel />}
         {activeTab === 'portal' && <CustomerAccessPanel />}
+        {activeTab === 'audit' && <AuditTrailPanel />}
         {activeTab === 'complaints' && <ComplaintsPanel />}
       </main>
     </div>
@@ -432,6 +434,115 @@ function ComplaintsPanel() {
                       Resolve
                     </Button>
                   )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab 5: Audit Trail ──────────────────────────────────────────────────
+function AuditTrailPanel() {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [actionFilter, setActionFilter] = useState('all');
+
+  const { data: auditData = { logs: [], total: 0 }, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['audit-logs'],
+    queryFn: () => api.admin.getAuditLogs({ limit: 200 }),
+  });
+
+  const logs = auditData.logs || [];
+  const filtered = logs.filter(log => {
+    const matchSearch = !searchTerm ||
+      (log.user_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.action || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.entity_type || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchAction = actionFilter === 'all' || log.action === actionFilter;
+    return matchSearch && matchAction;
+  });
+
+  const uniqueActions = [...new Set(logs.map(l => l.action))];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-gray-500 font-medium">{auditData.total} total events</p>
+        <button onClick={() => refetch()} disabled={isFetching}
+          className="p-2 rounded-xl hover:bg-gray-100 text-gray-400 transition-all">
+          <RefreshCw className={cn("w-5 h-5", isFetching && "animate-spin")} />
+        </button>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search user, action, or entity..."
+            className="input pl-10"
+          />
+        </div>
+        <Select
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+          options={[
+            { value: 'all', label: 'All Actions' },
+            ...uniqueActions.map(a => ({ value: a, label: a })),
+          ]}
+          className="w-44"
+        />
+      </div>
+
+      {isLoading ? (
+        [...Array(6)].map((_, i) => <div key={i} className="skeleton h-16 w-full rounded-2xl" />)
+      ) : isError ? (
+        <div className="text-center py-12 bg-white/40 rounded-3xl border-2 border-dashed border-red-200">
+          <AlertCircle className="w-12 h-12 mx-auto text-red-400 mb-4" />
+          <p className="font-bold text-red-600">Failed to load audit trail</p>
+          <Button onClick={() => refetch()} className="mt-4">Retry</Button>
+        </div>
+      ) : filtered.length === 0 ? (
+        <Card className="p-12 text-center text-gray-400 border-dashed border-2">
+          <Activity className="w-12 h-12 mx-auto mb-4 opacity-20" />
+          <p className="font-medium">No audit events yet</p>
+          <p className="text-xs mt-1">Admin actions will be recorded here automatically</p>
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((log) => (
+            <Card key={log.id} className="p-3 flex items-center gap-3 hover:border-slate-200 transition-all group">
+              <div className={cn(
+                'w-9 h-9 rounded-xl flex items-center justify-center shrink-0',
+                log.action?.includes('CREATE') ? 'bg-emerald-50 text-emerald-600'
+                : log.action?.includes('DELETE') ? 'bg-red-50 text-red-600'
+                : log.action?.includes('UPDATE') ? 'bg-amber-50 text-amber-600'
+                : 'bg-indigo-50 text-indigo-600'
+              )}>
+                {log.action?.includes('DELETE') ? <Trash2 className="w-4 h-4" />
+                  : log.action?.includes('UPDATE') ? <RefreshCw className="w-4 h-4" />
+                  : <CheckCircle2 className="w-4 h-4" />
+                }
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-bold text-gray-900">{log.user_name}</span>
+                  <span className={cn(
+                    'text-[9px] font-black uppercase px-1.5 py-0.5 rounded-md',
+                    log.action?.includes('CREATE') ? 'bg-emerald-100 text-emerald-700'
+                    : log.action?.includes('DELETE') ? 'bg-red-100 text-red-700'
+                    : 'bg-indigo-100 text-indigo-700'
+                  )}>{log.action}</span>
+                  {log.entity_type && (
+                    <span className="text-[9px] text-gray-400 font-medium">{log.entity_type}#{log.entity_id || ''}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-400">
+                  <Clock className="w-3 h-3" />
+                  {log.created_at ? format(new Date(log.created_at), 'MMM dd, yyyy · hh:mm a') : '—'}
                 </div>
               </div>
             </Card>

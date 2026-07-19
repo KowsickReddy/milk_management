@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, Button, Select } from '../../ui';
 import {
   Calendar, ChevronLeft, ChevronRight, Milk, CheckCircle2,
@@ -20,9 +20,7 @@ export default function PortalCalendar({ user }) {
   const [error, setError] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
 
-  const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
   const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${year}-${String(month).padStart(2, '0')}-${lastDay}`;
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
 
   useEffect(() => {

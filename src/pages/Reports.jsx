@@ -7,6 +7,7 @@ import {
 import {
   BarChart2, Calendar, RefreshCw, Users,
   ChevronLeft, ChevronRight, TrendingUp, TrendingDown, Wallet,
+  Download
 } from 'lucide-react';
 import api from '../services/api';
 import { cn, formatCurrency, getMonthName, getInitials } from '../lib/utils';
@@ -66,6 +67,28 @@ function DailyReport() {
   const summary = data?.summary || {};
   const deliveries = data?.deliveries || [];
 
+  // CSV Export for Daily
+  const exportToCSV = () => {
+    if (deliveries.length === 0) return;
+    const headers = ['Customer', 'Shift', 'Status', 'Scheduled (L)', 'Delivered (L)', 'Extra (L)'];
+    const rows = deliveries.map(d => [
+      d.customer_name,
+      d.delivery_shift || d.session || '',
+      d.delivered ? (d.extra_milk > 0 ? 'Extra' : 'Delivered') : d.leave ? 'Leave' : 'Pending',
+      Number(d.scheduled_quantity || 0).toFixed(1),
+      Number(d.delivered_quantity || 0).toFixed(1),
+      Number(d.extra_milk || 0).toFixed(1),
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `daily-report-${selectedDate}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-5">
       {/* Date picker */}
@@ -89,6 +112,11 @@ function DailyReport() {
         <Button variant="ghost" onClick={() => refetch()} className="p-2">
           <RefreshCw className={cn('w-4 h-4 text-gray-400', isLoading && 'animate-spin')} />
         </Button>
+        {deliveries.length > 0 && (
+          <Button variant="outline" onClick={exportToCSV} className="text-xs gap-1.5">
+            <Download className="w-3.5 h-3.5" /> CSV
+          </Button>
+        )}
       </div>
 
       {/* Summary stats */}
@@ -173,6 +201,31 @@ function MonthlyReport() {
 
   const customers = useMemo(() => data?.customers || [], [data]);
 
+  // CSV Export for Monthly
+  const exportMonthlyCSV = () => {
+    if (customers.length === 0) return;
+    const headers = ['Customer', 'Days', 'Leave', 'Total Milk (L)', 'Extra Milk (L)', 'Rate (₹/L)', 'Gross (₹)', 'Wallet Adj. (₹)', 'Net Payable (₹)'];
+    const rows = customers.map(c => [
+      c.customer_name,
+      c.delivered_days || 0,
+      c.leave_days || 0,
+      Number(c.total_milk || 0).toFixed(1),
+      Number(c.total_extra_milk || 0).toFixed(1),
+      c.milk_rate_per_liter || 0,
+      Number(c.total_amount || 0).toFixed(2),
+      Number(c.wallet_deduction || c.credit_used || 0).toFixed(2),
+      (Number(c.total_amount || 0) - Number(c.wallet_deduction || c.credit_used || 0)).toFixed(2),
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `monthly-report-${year}-${String(month).padStart(2,'0')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const totals = useMemo(() => customers.reduce((acc, c) => {
     const rawTotal     = Number(c.total_amount || 0);
     // Use server-computed wallet_deduction/credit_used instead of recalculating from credit_balance
@@ -194,6 +247,11 @@ function MonthlyReport() {
         <Button variant="ghost" onClick={() => refetch()} className="p-2">
           <RefreshCw className={cn('w-4 h-4 text-gray-400', isLoading && 'animate-spin')} />
         </Button>
+        {customers.length > 0 && (
+          <Button variant="outline" onClick={exportMonthlyCSV} className="text-xs gap-1.5">
+            <Download className="w-3.5 h-3.5" /> CSV
+          </Button>
+        )}
       </div>
 
       {/* Totals row */}

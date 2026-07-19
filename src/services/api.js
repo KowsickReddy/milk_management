@@ -110,6 +110,7 @@ export const adminAPI = {
   getComplaints: () => apiCall('/api/admin/complaints'),
   updateComplaintStatus: (id, status) => apiCall(`/api/admin/complaints/${id}/status`, { method: 'PATCH', body: { status } }),
   getAlerts: () => apiCall('/api/admin/alerts'),
+  getAuditLogs: (params = {}) => apiCall(`/api/logs${toQuery(params)}`),
 };
 
 // ── Deliveries ─────────────────────────────────────────────────────────────

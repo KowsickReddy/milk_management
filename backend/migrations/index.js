@@ -15,6 +15,7 @@ const migrations = [
   require('./009_both_shifts'),
   require('./010_customer_title'),
   require('./011_admin_notes'),
+  require('./012_audit_logs'),
 ];
 
 async function runMigrations() {

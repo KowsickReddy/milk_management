@@ -6,9 +6,9 @@ import {
   Tooltip, ResponsiveContainer,
 } from 'recharts';
 import {
-  Users, TrendingUp, Clock, Milk, Wallet,
+  Users, TrendingUp, Clock, Milk, Wallet, CalendarDays,
   Receipt, Truck, RefreshCw, CheckCircle2, AlertCircle,
-  Plus, DollarSign, CalendarDays, Activity,
+  Activity,
 } from 'lucide-react';
 import { cn, formatCurrency, getToday, getWeekDates, getMonthName } from '../lib/utils';
 import api from '../services/api';
@@ -185,7 +185,7 @@ function RecentDeliveries({ deliveries, customers }) {
 export default function Dashboard({ onNavigate }) {
   const today = getToday();
 
-  const { data: stats, isLoading: statsLoading, isError: statsIsError, error: _statsError, refetch: refetchStats } = useQuery({
+  const { data: stats, isError: statsIsError, error: _statsError, refetch: refetchStats } = useQuery({
     queryKey: ['analytics', 'dashboard'],
     queryFn:  () => api.analytics.getDashboard(),
     refetchInterval: 60 * 1000,

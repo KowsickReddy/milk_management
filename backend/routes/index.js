@@ -20,6 +20,8 @@ const feedRoutes = require('./feedRoutes');
 const webauthnRoutes = require('./webauthnRoutes');
 const notesRoutes = require('./notesRoutes');
 const portalCalendarRoutes = require('./portalCalendarRoutes');
+const auditRoutes = require('./auditRoutes');
+const forgotPinRoutes = require('./forgotPinRoutes');
 
 function registerRoutes(app) {
   // Health (no auth)
@@ -50,6 +52,12 @@ function registerRoutes(app) {
 
   // Portal calendar (separate route for cleaner resolution)
   app.use('/api/portal/calendar', portalCalendarRoutes);
+
+  // Audit logs (admin only)
+  app.use('/api', auditRoutes);
+
+  // Forgot PIN (public)
+  app.use('/api', forgotPinRoutes);
 
   // Legacy stats endpoint
 
