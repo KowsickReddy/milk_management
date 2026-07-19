@@ -6,7 +6,8 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import {
   Plus, RefreshCw, Phone, MapPin, Edit2, Trash2,
   Search, Milk, Wallet, UserCheck, UserX, Users, Key, BarChart3,
-  Calendar, CheckCircle2, Clock, TrendingUp, CalendarOff
+  Calendar, CheckCircle2, Clock, TrendingUp, CalendarOff,
+  XCircle
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -273,6 +274,42 @@ function CustomerSummaryModal({ isOpen, onClose, customer }) {
     enabled: !!customer,
   });
 
+  // ── Calendar data ────────────────────────────────────────────────────────
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+
+  const { data: calendarData, isLoading: calLoading } = useQuery({
+    queryKey: ['customer-calendar', customer?.id, year, month],
+    queryFn: () => api.portal.getCalendar(customer.id, year, month),
+    enabled: !!customer,
+  });
+
+  const calendarEntries = calendarData?.calendar || [];
+  const calendarMap = {};
+  calendarEntries.forEach(d => { calendarMap[d.day] = d; });
+
+  // Build calendar grid
+  const calGrid = [];
+  for (let i = 0; i < firstDayOfWeek; i++) calGrid.push(null);
+  for (let day = 1; day <= lastDay; day++) calGrid.push(day);
+
+  const [selectedDay, setSelectedDay] = useState(null);
+
+  const getDayColor = (daySummary) => {
+    if (!daySummary) return 'bg-slate-50 text-slate-400';
+    if (daySummary.extra) return 'bg-blue-100 text-blue-700 border-blue-300';
+    if (daySummary.delivered) return 'bg-emerald-100 text-emerald-700 border-emerald-300';
+    if (daySummary.leave) return 'bg-red-100 text-red-700 border-red-300';
+    return 'bg-slate-50 text-slate-400';
+  };
+
+  const getDayIndicator = (daySummary) => {
+    if (!daySummary) return null;
+    if (daySummary.extra) return <Plus className="w-2.5 h-2.5 text-blue-500" />;
+    if (daySummary.delivered) return <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" />;
+    if (daySummary.leave) return <XCircle className="w-2.5 h-2.5 text-red-500" />;
+    return null;
+  };
+
   const { data: bills = [], isError: billsError, refetch: refetchBills } = useQuery({
     queryKey: ['customer-bills', customer?.id],
     queryFn: () => api.bills.getAll({ customerId: customer.id }),
@@ -359,6 +396,55 @@ function CustomerSummaryModal({ isOpen, onClose, customer }) {
             />
             <span className="text-[10px] sm:text-xs text-gray-400">{startDate} → {endDate}</span>
           </div>
+
+          {/* ── Calendar Grid ── */}
+          {calLoading ? (
+            <div className="skeleton h-64 rounded-2xl" />
+          ) : (
+            <div>
+              <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-1.5">
+                <Calendar className="w-4 h-4 text-indigo-500" /> Delivery Calendar
+              </h3>
+              {/* Legend */}
+              <div className="flex flex-wrap items-center gap-3 mb-3 p-2 bg-gray-50 rounded-xl text-[10px]">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-emerald-100 border border-emerald-300" /> Delivered</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-red-100 border border-red-300" /> Not Delivered</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-blue-100 border border-blue-300" /> Extra Milk</span>
+              </div>
+              {/* Weekday headers */}
+              <div className="grid grid-cols-7 gap-0.5 mb-0.5">
+                {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                  <div key={d} className="text-center text-[9px] font-black text-slate-400 uppercase tracking-wider py-0.5">{d}</div>
+                ))}
+              </div>
+              {/* Grid */}
+              <div className="grid grid-cols-7 gap-0.5">
+                {calGrid.map((day, idx) => {
+                  if (day === null) return <div key={`e-${idx}`} />;
+                  const ds = calendarMap[day]?.summary;
+                  const isSel = selectedDay === day;
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => setSelectedDay(selectedDay === day ? null : day)}
+                      className={cn(
+                        'relative flex flex-col items-center justify-center p-0.5 rounded-lg transition-all text-[11px] font-bold min-h-[36px]',
+                        getDayColor(ds),
+                        isSel && 'ring-2 ring-indigo-500 scale-110 z-10',
+                        ds && 'cursor-pointer hover:scale-105'
+                      )}
+                    >
+                      <span>{day}</span>
+                      {ds?.totalQuantity > 0 && (
+                        <span className="text-[7px] font-bold opacity-80 leading-none">{ds.totalQuantity.toFixed(1)}</span>
+                      )}
+                      {getDayIndicator(ds)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {reportLoading ? (
             <div className="space-y-3">
