@@ -314,6 +314,12 @@ function AppContent() {
     return () => clearInterval(interval);
   }, []);
 
+  // Dynamic page title
+  useEffect(() => {
+    const appName = 'Dairy MS';
+    document.title = `${currentPage} · ${appName}`;
+  }, [currentPage]);
+
   const handleLogin  = (userData) => {
     if (userData.token) localStorage.setItem('token', userData.token);
     localStorage.setItem('user', JSON.stringify(userData));

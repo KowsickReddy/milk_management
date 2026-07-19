@@ -104,7 +104,7 @@ const WebAuthnService = {
     return options;
   },
 
-  async verifyRegistration(userId, username, credential, expectedOrigin, expectedRPID) {
+  async verifyRegistration(userId, username, credential, expectedOrigin, expectedRPID, deviceName) {
     const expectedChallenge = challenges.get(`register:${userId}`);
     if (!expectedChallenge) {
       throw new AppError('No registration in progress', 400, 'VALIDATION_ERROR');
@@ -126,6 +126,8 @@ const WebAuthnService = {
     // Store credential ID as raw base64url string (not JSON-stringified)
     const credentialIdBase64 = Buffer.from(registrationInfo.credentialID).toString('base64url');
     // Store publicKey as Buffer - pg will convert to bytea automatically
+    // Use the device name from the request if provided, otherwise default
+    const effectiveDeviceName = deviceName || 'Unknown Device';
     await WebAuthnRepository.create({
       userId,
       userType: 'admin',
@@ -133,7 +135,7 @@ const WebAuthnService = {
       publicKey: Buffer.from(registrationInfo.credentialPublicKey),
       counter: registrationInfo.counter,
       transports: JSON.stringify(credential.response.transports || []),
-      deviceName: 'Unknown Device',
+      deviceName: effectiveDeviceName,
     });
 
     challenges.delete(`register:${userId}`);

@@ -30,10 +30,10 @@ const webauthnController = {
   }),
 
   registerComplete: asyncHandler(async (req, res) => {
-    const { userId, username, credential } = req.body;
+    const { userId, username, credential, deviceName } = req.body;
     const expectedOrigin = config.webauthn.origin;
     const expectedRPID = getRpID();
-    const result = await WebAuthnService.verifyRegistration(userId, username, credential, expectedOrigin, expectedRPID);
+    const result = await WebAuthnService.verifyRegistration(userId, username, credential, expectedOrigin, expectedRPID, deviceName);
     res.json(result);
   }),
 

@@ -4,7 +4,7 @@ import { Milk, Receipt, AlertCircle, Calendar, TrendingUp } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../../services/api';
 
-export default function PortalDashboard({ user }) {
+export default function PortalDashboard({ user, onNavigate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -163,13 +163,13 @@ export default function PortalDashboard({ user }) {
           </div>
         </Card>
         
-        <Card className="p-4 flex items-center gap-4">
+        <Card className="p-4 flex items-center gap-4 cursor-pointer hover:bg-blue-50 transition-all" onClick={() => onNavigate?.('bills')}>
           <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center">
             <Receipt className="w-5 h-5" />
           </div>
           <div>
             <p className="text-xs text-gray-400 font-bold uppercase">Last Bill</p>
-            <p className="font-bold text-gray-700">Check History</p>
+            <p className="font-bold text-gray-700">View Bills →</p>
           </div>
         </Card>
 
