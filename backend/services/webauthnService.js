@@ -5,62 +5,95 @@ const { AppError } = require('../middleware/errorHandler');
 const WebAuthnRepository = require('../repositories/webauthnRepository');
 const config = require('../config/auth');
 
-// Helper: convert stored credential ID buffer to base64url for comparison
-function credentialIdToBase64url(storedId) {
+/**
+ * Derive the WebAuthn rpID from the configured origin URL.
+ * rpID must be the effective domain of the FRONTEND (not the API server).
+ * e.g. https://dairyware.netlify.app -> dairyware.netlify.app
+ */
+function deriveRpID() {
+  const origin = config.webauthn.origin;
   try {
-    // If stored as JSON stringified Uint8Array ({"0": v, "1": v, ...})
-    const parsed = JSON.parse(storedId);
-    if (typeof parsed === 'string') {
-      // Already a base64url string
-      return parsed;
-    }
-    // It's an array-like object or actual array — extract values
-    const bytes = Array.isArray(parsed) ? parsed : Object.values(parsed).filter(v => typeof v === 'number');
-    return Buffer.from(bytes).toString('base64url');
+    const url = new URL(origin);
+    return url.hostname;
   } catch {
-    // If parsing fails, assume it's already a base64url string
-    return storedId;
+    return 'localhost';
   }
 }
 
-// Helper: parse stored credential ID into the format @simplewebauthn/server expects (Uint8Array)
-function parseStoredCredentialId(storedId) {
+/**
+ * Convert a PostgreSQL bytea hex string to a Buffer.
+ * pg returns bytea columns as hex strings potentially prefixed with \x.
+ * This strips the \x prefix and decodes.
+ */
+function publicKeyHexToBuffer(hexStr) {
+  if (!hexStr) return null;
+  if (Buffer.isBuffer(hexStr)) return hexStr;
+  if (typeof hexStr !== 'string') return Buffer.from(hexStr);
+
+  // pg bytea hex output looks like: \x3025a002... (backslash + x + hex)
+  // Check character-by-character to avoid JS string escaping issues
+  if (hexStr.length > 2 && hexStr.charCodeAt(0) === 92 && hexStr[1] === 'x') {
+    return Buffer.from(hexStr.slice(2), 'hex');
+  }
+  return Buffer.from(hexStr, 'hex');
+}
+
+/**
+ * Parse a stored credential ID back into a Buffer (Uint8Array).
+ * Supports multiple storage formats:
+ * 1. Raw base64url string (new format, preferred)
+ * 2. JSON-stringified base64url (old format: '"abc"')
+ * 3. JSON array-like object ('{"0": v, "1": v}')
+ */
+function storedIdToBuffer(storedId) {
+  if (!storedId) return Buffer.alloc(0);
+  // First, try to JSON parse it
   try {
     const parsed = JSON.parse(storedId);
     if (typeof parsed === 'string') {
-      // It's a base64url string — decode to Buffer
+      // JSON-stringified base64url string: '"abc123"' -> 'abc123'
       return Buffer.from(parsed, 'base64url');
     }
-    // Array-like object — convert to array of values
+    // Array-like object: { "0": 123, "1": 45, ... }
     const bytes = Array.isArray(parsed) ? parsed : Object.values(parsed).filter(v => typeof v === 'number');
     return Buffer.from(bytes);
   } catch {
-    // Assume raw base64url
+    // If JSON.parse fails, assume it's already a raw base64url string
     return Buffer.from(storedId, 'base64url');
   }
 }
 
-// In-memory challenges store (lost on restart — acceptable for biometric auth)
+/**
+ * Convert stored credential ID to a base64url string for comparison
+ * with the credential.id returned from the browser.
+ */
+function storedIdToBase64url(storedId) {
+  return storedIdToBuffer(storedId).toString('base64url');
+}
+
+// In-memory challenges store (lost on restart - acceptable for biometric auth)
 const challenges = new Map();
 
 const WebAuthnService = {
   async generateRegistrationOptions(userId, username) {
     const { generateRegistrationOptions } = await import('@simplewebauthn/server');
     const existing = await WebAuthnRepository.findByUserId(userId, 'admin');
-    const excludeCredentials = existing.map(r => parseStoredCredentialId(r.credential_id));
+    const rpID = deriveRpID();
+
+    const excludeCredentials = existing.map(r => ({
+      id: storedIdToBuffer(r.credential_id),
+      type: 'public-key',
+      transports: ['internal'],
+    }));
 
     const options = generateRegistrationOptions({
       rpName: config.webauthn.rpName,
-      rpID: 'localhost', // Will be overridden by the controller with req.hostname
+      rpID,
       userName: username,
       userDisplayName: username,
       timeout: config.webauthn.timeout,
       attestationType: 'none',
-      excludeCredentials: excludeCredentials.map(c => ({
-        id: c,
-        type: 'public-key',
-        transports: ['internal'],
-      })),
+      excludeCredentials,
       authenticatorSelection: {
         userVerification: 'required',
         residentKey: 'preferred',
@@ -90,13 +123,14 @@ const WebAuthnService = {
     }
 
     const { registrationInfo } = verification;
-    // Store credential ID as base64url string for reliable comparison
+    // Store credential ID as raw base64url string (not JSON-stringified)
     const credentialIdBase64 = Buffer.from(registrationInfo.credentialID).toString('base64url');
+    // Store publicKey as Buffer - pg will convert to bytea automatically
     await WebAuthnRepository.create({
       userId,
       userType: 'admin',
-      credentialId: JSON.stringify(credentialIdBase64),
-      publicKey: registrationInfo.credentialPublicKey,
+      credentialId: credentialIdBase64,
+      publicKey: Buffer.from(registrationInfo.credentialPublicKey),
       counter: registrationInfo.counter,
       transports: JSON.stringify(credential.response.transports || []),
       deviceName: 'Unknown Device',
@@ -120,7 +154,7 @@ const WebAuthnService = {
 
     const { generateAuthenticationOptions } = await import('@simplewebauthn/server');
     const allowCredentials = creds.map(c => ({
-      id: parseStoredCredentialId(c.credential_id),
+      id: storedIdToBuffer(c.credential_id),
       type: 'public-key',
       transports: JSON.parse(c.transports || '[]'),
     }));
@@ -142,9 +176,9 @@ const WebAuthnService = {
     }
 
     const creds = await WebAuthnRepository.findByUserId(userId, 'admin');
-    const cred = creds.find(c => {
-      return credentialIdToBase64url(c.credential_id) === credential.id;
-    });
+    // Compare using base64url on both sides
+    const credentialIdB64 = credential.id;
+    const cred = creds.find(c => storedIdToBase64url(c.credential_id) === credentialIdB64);
     if (!cred) {
       throw new AppError('Credential not found', 400, 'VALIDATION_ERROR');
     }
@@ -156,8 +190,8 @@ const WebAuthnService = {
       expectedOrigin,
       expectedRPID,
       credential: {
-        id: parseStoredCredentialId(cred.credential_id),
-        publicKey: cred.public_key,
+        id: storedIdToBuffer(cred.credential_id),
+        publicKey: publicKeyHexToBuffer(cred.public_key),
         counter: cred.counter,
         transports: JSON.parse(cred.transports || '[]'),
       },

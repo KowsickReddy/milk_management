@@ -4,6 +4,20 @@ const WebAuthnService = require('../services/webauthnService');
 const asyncHandler = require('../middleware/asyncHandler');
 const config = require('../config/auth');
 
+/**
+ * Derive the WebAuthn rpID from the configured origin URL.
+ * rpID MUST be the frontend domain, NOT the API server hostname,
+ * because WebAuthn binds credentials to the origin where the
+ * browser is running (the frontend).
+ */
+function getRpID() {
+  try {
+    return new URL(config.webauthn.origin).hostname;
+  } catch {
+    return 'localhost';
+  }
+}
+
 const webauthnController = {
   registerBegin: asyncHandler(async (req, res) => {
     const { userId, username } = req.body;
@@ -11,15 +25,14 @@ const webauthnController = {
       return res.status(400).json({ error: 'userId and username required' });
     }
     const options = await WebAuthnService.generateRegistrationOptions(userId, username);
-    // Override rpID with actual hostname
-    options.rpID = req.hostname;
+    options.rpID = getRpID();
     res.json(options);
   }),
 
   registerComplete: asyncHandler(async (req, res) => {
     const { userId, username, credential } = req.body;
     const expectedOrigin = config.webauthn.origin;
-    const expectedRPID = req.hostname;
+    const expectedRPID = getRpID();
     const result = await WebAuthnService.verifyRegistration(userId, username, credential, expectedOrigin, expectedRPID);
     res.json(result);
   }),
@@ -28,17 +41,18 @@ const webauthnController = {
     const { username } = req.body;
     if (!username) return res.status(400).json({ error: 'Username required' });
     const options = await WebAuthnService.generateLoginOptions(username);
-    options.rpID = req.hostname;
+    options.rpID = getRpID();
     res.json(options);
   }),
 
   loginComplete: asyncHandler(async (req, res) => {
     const { userId, credential } = req.body;
     const expectedOrigin = config.webauthn.origin;
-    const expectedRPID = req.hostname;
+    const expectedRPID = getRpID();
     const { user, token } = await WebAuthnService.verifyLogin(userId, credential, expectedOrigin, expectedRPID);
     res.cookie(config.jwtCookieName, token, config.cookie);
-    res.json(user);
+    // Return user with token for localStorage-based auth (App.js uses localStorage)
+    res.json({ ...user, token });
   }),
 
   getCredentials: asyncHandler(async (req, res) => {
