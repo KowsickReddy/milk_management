@@ -48,7 +48,16 @@ export async function apiCall(endpoint, options = {}) {
     config.body = JSON.stringify(config.body);
   }
 
-  const response = await fetch(url, config);
+  let response;
+  try {
+    response = await fetch(url, config);
+  } catch (e) {
+    // Network error (CORS, DNS, connection refused, etc.)
+    if (!suppressToast) {
+      toast.error('Network error — can\'t reach the server. Check your connection.');
+    }
+    throw new Error('Network error — server unreachable');
+  }
 
   let data;
   try {

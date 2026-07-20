@@ -26,7 +26,15 @@ app.use(requestId);
 // CORS
 app.use(cors({
   origin: (origin, cb) => {
-    if (!origin || config.cors.origin.includes(origin)) return cb(null, true);
+    if (!origin) return cb(null, true);
+    const allowed = config.cors.origin;
+    const match = allowed.some(entry => {
+      if (typeof entry === 'string') return entry === origin;
+      if (entry instanceof RegExp) return entry.test(origin);
+      return false;
+    });
+    if (match) return cb(null, true);
+    console.warn(`[CORS] Blocked origin: ${origin}`);
     cb(new Error('Not allowed by CORS'));
   },
   credentials: config.cors.credentials,
