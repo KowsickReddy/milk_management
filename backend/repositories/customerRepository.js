@@ -31,9 +31,33 @@ const CustomerRepository = {
 
   async create(data) {
     const { name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity } = data;
+    
+    // Use individual column assignments to avoid parameter binding issues with $10+ placeholders
+    const defaultQty = daily_milk_quantity || 0;
+    const effectiveShift = shift || 'morning';
+    const effectiveStatus = status || 'active';
+    const effectiveType = customer_type || 'regular';
+    const effectiveCredit = credit_balance || 0;
+    
     const result = await getPool().query(
-      'INSERT INTO customers (name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *',
-      [name, title || null, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', daily_milk_quantity || 0, customer_type || 'regular', credit_balance || 0, route_area || null, profile_photo || null, evening_milk_quantity || null]
+      `INSERT INTO customers (name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+      [
+        name,
+        title || null,
+        phone || null,
+        address,
+        Number(defaultQty),
+        Number(milk_rate_per_liter || 0),
+        effectiveShift,
+        effectiveStatus,
+        Number(defaultQty),
+        effectiveType,
+        Number(effectiveCredit),
+        route_area || null,
+        profile_photo || null,
+        evening_milk_quantity || null,
+      ]
     );
     return { id: result.rows[0].id, ...data };
   },
