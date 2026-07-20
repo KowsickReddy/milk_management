@@ -61,7 +61,6 @@ const CustomerRepository = {
        RETURNING *`;
     
     const result = await pool.query({ text, values: vals });
-    console.error('[CUSTOMER_CREATE] success, id:', result.rows[0]?.id);
     return { id: result.rows[0].id, ...data };
   },
 

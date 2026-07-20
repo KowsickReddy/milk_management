@@ -41,13 +41,10 @@ const errorHandler = (err, req, res, _next) => {
     response.stack = err.stack;
   }
 
-  // Include PostgreSQL error details in response for debugging
-  // PostgreSQL error codes are 5-character strings like '42601', '23505'
+  // Include PostgreSQL error details temporarily for debugging
+  // Will be removed after confirming customer creation fix
   if (err.code && /^[0-9]{5}$/.test(err.code)) {
     response.detail = err.message;
-    if (err.position) response.position = err.position;
-    if (err.hint) response.hint = err.hint;
-    if (err.where) response.where = err.where;
   }
 
   // Handle PostgreSQL-specific error codes
