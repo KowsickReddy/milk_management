@@ -709,7 +709,7 @@ export default function AdminCalendar() {
             {selectedCustomer && <span className="text-indigo-500 font-medium">— {selectedCustomer.name}</span>}
           </h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {selectedCustomer ? [
+            {(selectedCustomer ? [
               { label: 'Delivered Days', value: `${custStats.delivered} / ${custStats.totalDays}`, icon: CheckCircle2 },
               { label: 'Total Milk', value: `${custStats.totalQty.toFixed(1)} L`, icon: Milk },
               { label: 'Leave Days', value: custStats.leaves, icon: XCircle },
@@ -719,7 +719,7 @@ export default function AdminCalendar() {
               { label: 'Total Milk', value: `${stats.totalMilk.toFixed(1)} L`, icon: Milk },
               { label: 'Avg Daily Milk', value: `${stats.avgPerDay} L`, icon: TrendingUp },
               { label: 'Active Days', value: `${stats.activeDays} / ${daysInMonth}`, icon: Calendar },
-            ].map(({ label, value, icon: Icon }) => (
+            ]).map(({ label, value, icon: Icon }) => (
               <div key={label} className="bg-white/70 rounded-xl p-3 border border-indigo-100/50">
                 <div className="flex items-center gap-1.5 mb-1">
                   <Icon className="w-3.5 h-3.5 text-indigo-500" />
