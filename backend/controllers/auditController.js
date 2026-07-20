@@ -1,5 +1,5 @@
 const auditService = require('../services/auditService');
-const asyncHandler = require('../middlewares/asyncHandler');
+const asyncHandler = require('../middleware/asyncHandler');
 
 const auditController = {
   getLogs: asyncHandler(async (req, res) => {

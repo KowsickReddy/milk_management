@@ -1,8 +1,9 @@
 const { Router } = require('express');
 const bcrypt = require('bcryptjs');
 const { getPool } = require('../config/database');
-const asyncHandler = require('../middlewares/asyncHandler');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const asyncHandler = require('../middleware/asyncHandler');
+const authenticate = require('../middleware/authenticate');
+const { requireRole } = require('../middleware/authorize');
 
 const router = Router();
 
@@ -32,7 +33,7 @@ router.post('/forgot-pin', asyncHandler(async (req, res) => {
 }));
 
 // Admin: Reset customer PIN
-router.post('/reset-customer-pin', authenticateToken, requireRole(['admin']), asyncHandler(async (req, res) => {
+router.post('/reset-customer-pin', authenticate, requireRole('admin'), asyncHandler(async (req, res) => {
   const { customerId, newPin } = req.body;
   if (!customerId || !newPin || newPin.length < 4) {
     return res.status(400).json({ error: 'Customer ID and PIN (min 4 chars) required' });
