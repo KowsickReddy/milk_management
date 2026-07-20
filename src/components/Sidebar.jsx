@@ -17,10 +17,11 @@ const adminNavItems = [
   { id: 'billing',     label: 'Billing',         icon: Receipt },
   { id: 'access-mgmt', label: 'Portal Access',   icon: Fingerprint },
   { id: 'access-logs', label: 'Access Logs',     icon: Shield },
-  { id: 'reports',     label: 'Reports',         icon: BarChart3 },
-  { id: 'calculator',  label: 'Calculator',      icon: Calculator },
-  { id: 'notes',       label: 'Notes',           icon: StickyNote },
-  { id: 'about',       label: 'About',           icon: Info },
+  { id: 'reports',       label: 'Reports',          icon: BarChart3 },
+  { id: 'calculator',    label: 'Calculator',       icon: Calculator },
+  { id: 'admin-calendar',label: 'Delivery Calendar', icon: CalendarDays },
+  { id: 'notes',         label: 'Notes',            icon: StickyNote },
+  { id: 'about',         label: 'About',            icon: Info },
 ];
 
 const customerNavItems = [
