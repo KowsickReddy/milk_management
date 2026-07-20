@@ -32,32 +32,35 @@ const CustomerRepository = {
   async create(data) {
     const { name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity } = data;
     
-    const values = [
-      name,
-      title || null,
-      phone || null,
-      address,
-      Number(daily_milk_quantity || 0),
-      Number(milk_rate_per_liter || 0),
-      shift || 'morning',
-      status || 'active',
-      Number(daily_milk_quantity || 0),
-      customer_type || 'regular',
-      Number(credit_balance || 0),
-      route_area || null,
-      profile_photo || null,
-      evening_milk_quantity || null,
-    ];
+    // Build query dynamically to ensure exact column count match
+    const colNames = [];
+    const vals = [];
+    const placeholders = [];
+    let idx = 1;
     
-    // Log the query for debugging
+    const add = (col, val) => { colNames.push(col); vals.push(val); placeholders.push(`$${idx++}`); };
+    
+    add('name', name);
+    if (title) add('title', title);
+    add('phone', phone || null);
+    add('address', address || '');
+    add('daily_milk_quantity', Number(daily_milk_quantity || 0));
+    add('milk_rate_per_liter', Number(milk_rate_per_liter || 0));
+    add('shift', shift || 'morning');
+    add('status', status || 'active');
+    add('default_milk_quantity', Number(daily_milk_quantity || 0));
+    add('customer_type', customer_type || 'regular');
+    add('credit_balance', Number(credit_balance || 0));
+    add('route_area', route_area || 'Default');
+    if (profile_photo) add('profile_photo', profile_photo);
+    add('evening_milk_quantity', evening_milk_quantity || null);
+    
     const pool = getPool();
-    console.error('[CUSTOMER_CREATE] values:', JSON.stringify(values));
+    const text = `INSERT INTO customers (${colNames.join(', ')})
+       VALUES (${placeholders.join(', ')})
+       RETURNING *`;
     
-    const result = await pool.query({
-      text: `INSERT INTO customers (name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, default_milk_quantity, customer_type, credit_balance, route_area, profile_photo, evening_milk_quantity)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      values,
-    });
+    const result = await pool.query({ text, values: vals });
     console.error('[CUSTOMER_CREATE] success, id:', result.rows[0]?.id);
     return { id: result.rows[0].id, ...data };
   },
