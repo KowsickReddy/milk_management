@@ -283,84 +283,8 @@ export default function Deliveries() {
     queryFn:  () => api.deliveries.getAll({ date: selectedDate }),
   });
 
-  // Bulk selection helpers
+  // Selection key helper (defined before usage)
   const getSelectionKey = (customerId, shift) => `${customerId}-${shift || 'morning'}`;
-
-  const toggleSelect = (customerId, shift) => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      const key = getSelectionKey(customerId, shift);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
-
-  const selectAllPending = () => {
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      pendingList.forEach(({ customer }) => {
-        const key = getSelectionKey(customer.id, customer._shiftContext);
-        next.add(key);
-      });
-      return next;
-    });
-  };
-
-  const deselectAll = () => setSelectedIds(new Set());
-
-  const selectedCount = pendingList.filter(({ customer }) =>
-    selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
-  ).length;
-
-  const allPendingSelected = pendingList.length > 0 && pendingList.every(({ customer }) =>
-    selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
-  );
-
-  const handleBulkDeliver = async () => {
-    const selectedItems = pendingList.filter(({ customer }) =>
-      selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
-    );
-    if (selectedItems.length === 0) {
-      toast.error('No customers selected');
-      return;
-    }
-    
-    // Build payloads and create all deliveries
-    const payloads = selectedItems.map(({ customer }) => {
-      const shift = customer._shiftContext || customer.shift || 'morning';
-      const isEvening = shift === 'evening';
-      const qty = isEvening && customer.evening_milk_quantity
-        ? parseFloat(customer.evening_milk_quantity)
-        : parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
-      return buildPayload(customer, 'delivered', qty, 0, shift);
-    });
-
-    // Optimistic cache update
-    queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
-      const next = [...old];
-      payloads.forEach(p => {
-        const entry = { ...p, id: `temp-${Date.now()}-${Math.random()}`, delivered: true, leave: false, status: 'delivered', delivery_shift: p.delivery_shift };
-        const idx = next.findIndex(d => Number(d.customer_id) === Number(p.customer_id) && (d.delivery_shift || 'morning') === p.delivery_shift);
-        if (idx > -1) next[idx] = entry; else next.push(entry);
-      });
-      return next;
-    });
-
-    try {
-      // Use the batch API if available, otherwise create one by one
-      if (api.deliveries.createBatch) {
-        await api.deliveries.createBatch({ deliveries: payloads });
-      } else {
-        await Promise.all(payloads.map(p => api.deliveries.create(p)));
-      }
-      toast.success(`✅ Delivered ${payloads.length} customer(s)`);
-      setSelectedIds(new Set());
-    } catch (err) {
-      toast.error('Bulk deliver failed: ' + err.message);
-    } finally {
-      queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
-    }
-  };
 
   // Reset selection on date change
   useEffect(() => {
@@ -430,6 +354,37 @@ export default function Deliveries() {
     return { deliveredList: dList, pendingList: pList, leaveList: lList, totalMilk: milk };
   }, [activeCustomers, deliveries]);
 
+  // ── Selection helpers (AFTER pendingList is defined) ─────────────────────
+  const selectAllPending = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      pendingList.forEach(({ customer }) => {
+        const key = getSelectionKey(customer.id, customer._shiftContext);
+        next.add(key);
+      });
+      return next;
+    });
+  };
+
+  const toggleSelect = (customerId, shift) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const key = getSelectionKey(customerId, shift);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const deselectAll = () => setSelectedIds(new Set());
+
+  const selectedCount = pendingList.filter(({ customer }) =>
+    selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
+  ).length;
+
+  const allPendingSelected = pendingList.length > 0 && pendingList.every(({ customer }) =>
+    selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
+  );
+
   const buildPayload = (customer, status, baseQuantity, extraMilk, deliveryShift) => ({
     customer_id:        Number(customer.id),
     customer_name:      customer.name,
@@ -443,6 +398,52 @@ export default function Deliveries() {
     delivery_shift:     deliveryShift || customer.shift || 'morning',
     is_deleted:         false,
   });
+
+  const handleBulkDeliver = async () => {
+    const selectedItems = pendingList.filter(({ customer }) =>
+      selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
+    );
+    if (selectedItems.length === 0) {
+      toast.error('No customers selected');
+      return;
+    }
+    
+    // Build payloads and create all deliveries
+    const payloads = selectedItems.map(({ customer }) => {
+      const shift = customer._shiftContext || customer.shift || 'morning';
+      const isEvening = shift === 'evening';
+      const qty = isEvening && customer.evening_milk_quantity
+        ? parseFloat(customer.evening_milk_quantity)
+        : parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+      return buildPayload(customer, 'delivered', qty, 0, shift);
+    });
+
+    // Optimistic cache update
+    queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
+      const next = [...old];
+      payloads.forEach(p => {
+        const entry = { ...p, id: `temp-${Date.now()}-${Math.random()}`, delivered: true, leave: false, status: 'delivered', delivery_shift: p.delivery_shift };
+        const idx = next.findIndex(d => Number(d.customer_id) === Number(p.customer_id) && (d.delivery_shift || 'morning') === p.delivery_shift);
+        if (idx > -1) next[idx] = entry; else next.push(entry);
+      });
+      return next;
+    });
+
+    try {
+      // Use the batch API if available, otherwise create one by one
+      if (api.deliveries.createBatch) {
+        await api.deliveries.createBatch({ deliveries: payloads });
+      } else {
+        await Promise.all(payloads.map(p => api.deliveries.create(p)));
+      }
+      toast.success(`✅ Delivered ${payloads.length} customer(s)`);
+      setSelectedIds(new Set());
+    } catch (err) {
+      toast.error('Bulk deliver failed: ' + err.message);
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
+    }
+  };
 
   const handleQuickDeliver = async (customer, customQty, deliveryShift, isEvening) => {
     const shift = deliveryShift || customer.shift || 'morning';
