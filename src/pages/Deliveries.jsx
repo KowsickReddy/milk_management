@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Check, Plus, Package, ChevronLeft, ChevronRight,
   RefreshCw, Milk, Coffee, Moon, CalendarOff, AlertCircle, Truck,
+  CheckSquare, Square,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../services/api';
@@ -60,7 +61,7 @@ function DailySummaryBar({ deliveredList, pendingList, leaveList, totalMilk }) {
 }
 
 // ── Delivery Card ──────────────────────────────────────────────────────-─
-function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, shiftContext }) {
+function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, shiftContext, selectable, selected, onToggle }) {
   const [extraQty,   setExtraQty]   = useState('');
   const [showExtra,  setShowExtra]  = useState(false);
   const [deliverQty, setDeliverQty] = useState('');
@@ -104,6 +105,18 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, s
           )}>
             {getInitials(customer.name)}
           </div>
+          {selectable && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onToggle && onToggle(customer.id, shiftContext || customer.shift || 'morning'); }}
+              className="flex items-center justify-center w-6 h-6 rounded-lg hover:bg-slate-100 transition-colors shrink-0"
+            >
+              {selected ? (
+                <CheckSquare className="w-5 h-5 text-indigo-600" />
+              ) : (
+                <Square className="w-5 h-5 text-slate-300" />
+              )}
+            </button>
+          )}
           <div>
             <h3 className="font-black text-slate-900 text-[15px] tracking-tight leading-none">#{customer.id} {customer.name}</h3>
             <div className="flex items-center gap-2 mt-2">
@@ -164,7 +177,7 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, s
                   type="number"
                   step="0.5"
                   min="0"
-                  defaultValue={defaultQty}
+                  value={deliverQty || defaultQty}
                   onChange={(e) => setDeliverQty(e.target.value)}
                   className="flex-1 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
@@ -241,6 +254,7 @@ export default function Deliveries() {
   const [leaveForm,       setLeaveForm]       = useState({ customer_id: '', start_date: '', end_date: '', reason: '' });
   const [showLeaveForm,   setShowLeaveForm]   = useState(false);
   const [resetTarget,     setResetTarget]     = useState(null); // delivery object
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const undoTimeouts = useRef({});
 
   const { data: customers = [], isLoading: loadingCust, isError: custIsError, error: _custError, refetch: refetchCust } = useQuery({
@@ -268,6 +282,90 @@ export default function Deliveries() {
     queryKey: ['deliveries', selectedDate],
     queryFn:  () => api.deliveries.getAll({ date: selectedDate }),
   });
+
+  // Bulk selection helpers
+  const getSelectionKey = (customerId, shift) => `${customerId}-${shift || 'morning'}`;
+
+  const toggleSelect = (customerId, shift) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      const key = getSelectionKey(customerId, shift);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const selectAllPending = () => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      pendingList.forEach(({ customer }) => {
+        const key = getSelectionKey(customer.id, customer._shiftContext);
+        next.add(key);
+      });
+      return next;
+    });
+  };
+
+  const deselectAll = () => setSelectedIds(new Set());
+
+  const selectedCount = pendingList.filter(({ customer }) =>
+    selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
+  ).length;
+
+  const allPendingSelected = pendingList.length > 0 && pendingList.every(({ customer }) =>
+    selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
+  );
+
+  const handleBulkDeliver = async () => {
+    const selectedItems = pendingList.filter(({ customer }) =>
+      selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
+    );
+    if (selectedItems.length === 0) {
+      toast.error('No customers selected');
+      return;
+    }
+    
+    // Build payloads and create all deliveries
+    const payloads = selectedItems.map(({ customer }) => {
+      const shift = customer._shiftContext || customer.shift || 'morning';
+      const isEvening = shift === 'evening';
+      const qty = isEvening && customer.evening_milk_quantity
+        ? parseFloat(customer.evening_milk_quantity)
+        : parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
+      return buildPayload(customer, 'delivered', qty, 0, shift);
+    });
+
+    // Optimistic cache update
+    queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
+      const next = [...old];
+      payloads.forEach(p => {
+        const entry = { ...p, id: `temp-${Date.now()}-${Math.random()}`, delivered: true, leave: false, status: 'delivered', delivery_shift: p.delivery_shift };
+        const idx = next.findIndex(d => Number(d.customer_id) === Number(p.customer_id) && (d.delivery_shift || 'morning') === p.delivery_shift);
+        if (idx > -1) next[idx] = entry; else next.push(entry);
+      });
+      return next;
+    });
+
+    try {
+      // Use the batch API if available, otherwise create one by one
+      if (api.deliveries.createBatch) {
+        await api.deliveries.createBatch({ deliveries: payloads });
+      } else {
+        await Promise.all(payloads.map(p => api.deliveries.create(p)));
+      }
+      toast.success(`✅ Delivered ${payloads.length} customer(s)`);
+      setSelectedIds(new Set());
+    } catch (err) {
+      toast.error('Bulk deliver failed: ' + err.message);
+    } finally {
+      queryClient.invalidateQueries({ queryKey: ['deliveries', selectedDate] });
+    }
+  };
+
+  // Reset selection on date change
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [selectedDate]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -639,13 +737,47 @@ export default function Deliveries() {
           <div className="space-y-10">
             {pendingList.length > 0 && (
               <section>
-                <div className="flex items-center gap-3 mb-5 ml-1">
-                  <div className="w-2.5 h-2.5 rounded-full bg-slate-300 animate-pulse" />
-                  <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Pending ({pendingList.length})</h2>
+                <div className="flex items-center justify-between mb-5 ml-1">
+                  <div className="flex items-center gap-3">
+                    <div className="w-2.5 h-2.5 rounded-full bg-slate-300 animate-pulse" />
+                    <h2 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em]">Pending ({pendingList.length})</h2>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={allPendingSelected ? deselectAll : selectAllPending}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-indigo-600 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                    >
+                      {allPendingSelected ? (
+                        <><Square className="w-3.5 h-3.5" /> Deselect All</>
+                      ) : (
+                        <><CheckSquare className="w-3.5 h-3.5" /> Select All</>
+                      )}
+                    </button>
+                    {selectedCount > 0 && (
+                      <button
+                        onClick={handleBulkDeliver}
+                        className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm shadow-emerald-200 transition-all active:scale-95"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Deliver ({selectedCount})
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                   {pendingList.map(({ customer }) => (
-                    <DeliveryCard key={`${customer.id}-${customer._shiftContext || 'morning'}`} customer={customer} delivery={null} onAction={handleActionClick} onQuickDeliver={handleQuickDeliver} onReset={handleReset} shiftContext={customer._shiftContext} />
+                    <DeliveryCard
+                      key={`${customer.id}-${customer._shiftContext || 'morning'}`}
+                      customer={customer}
+                      delivery={null}
+                      onAction={handleActionClick}
+                      onQuickDeliver={handleQuickDeliver}
+                      onReset={handleReset}
+                      shiftContext={customer._shiftContext}
+                      selectable={true}
+                      selected={selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))}
+                      onToggle={toggleSelect}
+                    />
                   ))}
                 </div>
               </section>
