@@ -64,7 +64,6 @@ function DailySummaryBar({ deliveredList, pendingList, leaveList, totalMilk }) {
 function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, shiftContext, selectable, selected, onToggle }) {
   const [extraQty,   setExtraQty]   = useState('');
   const [showExtra,  setShowExtra]  = useState(false);
-  const [deliverQty, setDeliverQty] = useState('');
 
   const status       = getDeliveryStatus(delivery);
   const isDelivered  = status === 'delivered' || status === 'extra';
@@ -82,6 +81,17 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, s
     : parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
   const scheduledQty = defaultQty;
   const extraMilk    = parseFloat(delivery?.extra_milk || 0);
+
+  // ⬇️ FIX: Initialize from defaultQty so user can freely edit/clear/override
+  // No more `value={deliverQty || defaultQty}` fallback that traps the input
+  const [deliverQty, setDeliverQty] = useState(defaultQty);
+
+  // Sync deliverQty when customer data or pending state changes.
+  // This ensures the input refreshes to the server's default value
+  // when: customer default milk is updated, or delivery is reset to pending
+  useEffect(() => {
+    setDeliverQty(defaultQty);
+  }, [defaultQty, isPending]);
 
   const shiftIcon = isEvening
     ? <Moon className="w-3 h-3 text-indigo-500" />
@@ -172,15 +182,14 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, s
               {/* Quantity adjuster */}
               <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-2xl border border-slate-100">
                 <Milk className="w-4 h-4 text-indigo-400 shrink-0" />
-                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Qty:</span>
-                <input
-                  type="number"
-                  step="0.5"
-                  min="0"
-                  value={deliverQty || defaultQty}
-                  onChange={(e) => setDeliverQty(e.target.value)}
-                  className="flex-1 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
+                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Qty:</span>                  <input
+                    type="number"
+                    step="0.5"
+                    min="0"
+                    value={deliverQty}
+                    onChange={(e) => setDeliverQty(e.target.value)}
+                    className="flex-1 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  />
                 <span className="text-xs font-bold text-slate-400">L</span>
               </div>                <button
                 onClick={() => {
