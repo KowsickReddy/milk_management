@@ -67,10 +67,10 @@ const CustomerRepository = {
   async update(id, data) {
     const { name, title, phone, address, daily_milk_quantity, milk_rate_per_liter, shift, status, customer_type, credit_balance, route_area, default_milk_quantity, profile_photo, evening_milk_quantity } = data;
     const result = await getPool().query(
-      'UPDATE customers SET name=$1, title=$2, phone=$3, address=$4, daily_milk_quantity=$5, milk_rate_per_liter=$6, shift=$7, status=$8, customer_type=$9, credit_balance=$10, route_area=$11, default_milk_quantity=$12, profile_photo=$13, evening_milk_quantity=$14 WHERE id=$15',
+      'UPDATE customers SET name=$1, title=$2, phone=$3, address=$4, daily_milk_quantity=$5, milk_rate_per_liter=$6, shift=$7, status=$8, customer_type=$9, credit_balance=$10, route_area=$11, default_milk_quantity=$12, profile_photo=$13, evening_milk_quantity=$14 WHERE id=$15 RETURNING *',
       [name, title || null, phone || null, address, daily_milk_quantity || 0, milk_rate_per_liter || 0, shift || 'morning', status || 'active', customer_type || 'regular', credit_balance || 0, route_area || null, default_milk_quantity || daily_milk_quantity || 0, profile_photo || null, evening_milk_quantity || null, id]
     );
-    return result.rowCount > 0;
+    return result.rows[0] || null;
   },
 
   async delete(id) {

@@ -21,6 +21,9 @@ const DeliveryService = {
     if (!customer_id || !date) {
       throw new AppError('customer_id and date are required', 400, 'VALIDATION_ERROR');
     }
+    if (delivery_shift && !['morning', 'evening'].includes(delivery_shift)) {
+      throw new AppError('delivery_shift must be "morning" or "evening"', 400, 'VALIDATION_ERROR');
+    }
 
     // Validate delivery state
     if (data.delivered && data.leave) {

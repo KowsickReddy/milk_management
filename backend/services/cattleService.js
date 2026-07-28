@@ -20,11 +20,15 @@ const CattleService = {
     if (!data.tag_number) {
       throw new AppError('Tag number is required', 400, 'VALIDATION_ERROR');
     }
-    return await CattleRepository.update(id, data);
+    const cattle = await CattleRepository.update(id, data);
+    if (!cattle) throw new AppError('Cattle not found', 404, 'NOT_FOUND');
+    return cattle;
   },
 
   async delete(id) {
-    return await CattleRepository.delete(id);
+    const deleted = await CattleRepository.delete(id);
+    if (!deleted) throw new AppError('Cattle not found', 404, 'NOT_FOUND');
+    return { success: true };
   },
 };
 

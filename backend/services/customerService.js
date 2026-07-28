@@ -22,9 +22,9 @@ const CustomerService = {
 
   async update(id, data) {
     if (!data.name) throw Object.assign(new Error('Customer name is required'), { statusCode: 400 });
-    const updated = await CustomerRepository.update(id, data);
-    if (!updated) throw Object.assign(new Error('Customer not found'), { statusCode: 404 });
-    return { id, ...data };
+    const customer = await CustomerRepository.update(id, data);
+    if (!customer) throw Object.assign(new Error('Customer not found'), { statusCode: 404 });
+    return customer;
   },
 
   async delete(id) {

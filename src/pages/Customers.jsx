@@ -150,8 +150,7 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            {field('Morning Quantity (L)', 'daily_milk_quantity', 'number', { step: '0.5', placeholder: '2' })}
+          <div className="grid grid-cols-2 gap-4">              {field('Morning Quantity (L)', 'daily_milk_quantity', 'number', { step: '0.5', placeholder: '2' })}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Evening Quantity (L)</label>
               <input

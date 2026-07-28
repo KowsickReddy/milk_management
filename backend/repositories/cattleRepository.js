@@ -29,16 +29,17 @@ const CattleRepository = {
 
   async update(id, data) {
     const { tag_number, breed, entry_date, acquisition_cost, transport_cost, status, is_in_calf, gestation_start_date } = data;
-    await getPool().query(
-      'UPDATE cattle SET tag_number=$1, breed=$2, entry_date=$3, acquisition_cost=$4, transport_cost=$5, status=$6, is_in_calf=$7, gestation_start_date=$8 WHERE id=$9',
+    const result = await getPool().query(
+      'UPDATE cattle SET tag_number=$1, breed=$2, entry_date=$3, acquisition_cost=$4, transport_cost=$5, status=$6, is_in_calf=$7, gestation_start_date=$8 WHERE id=$9 RETURNING *',
       [tag_number, breed, entry_date, Number(acquisition_cost) || 0, Number(transport_cost) || 0, status, !!is_in_calf, (is_in_calf && gestation_start_date) ? gestation_start_date : null, id]
     );
-    return true;
+    if (result.rows.length === 0) return null;
+    return result.rows[0];
   },
 
   async delete(id) {
-    await getPool().query('DELETE FROM cattle WHERE id = $1', [id]);
-    return true;
+    const result = await getPool().query('DELETE FROM cattle WHERE id = $1', [id]);
+    return result.rowCount > 0;
   },
 
   async getStats() {

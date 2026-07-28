@@ -22,8 +22,8 @@ const FeedRepository = {
   },
 
   async delete(id) {
-    await getPool().query('DELETE FROM feed_purchases WHERE id = $1', [id]);
-    return true;
+    const result = await getPool().query('DELETE FROM feed_purchases WHERE id = $1', [id]);
+    return result.rowCount > 0;
   },
 
   async getStats() {

@@ -13,8 +13,8 @@ const CreditService = {
   },
 
   async applyCredit(customerId, billId, amount) {
-    return await withTransaction(async () => {
-      const result = await CreditRepository.applyCredit(customerId, billId, amount);
+    return await withTransaction(async (connection) => {
+      const result = await CreditRepository.applyCredit(customerId, billId, amount, connection);
       return { message: `Credit of ₹${result.applied} applied`, applied: result.applied };
     });
   },

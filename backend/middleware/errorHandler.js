@@ -41,12 +41,6 @@ const errorHandler = (err, req, res, _next) => {
     response.stack = err.stack;
   }
 
-  // Include PostgreSQL error details temporarily for debugging
-  // Will be removed after confirming customer creation fix
-  if (err.code && /^[0-9]{5}$/.test(err.code)) {
-    response.detail = err.message;
-  }
-
   // Handle PostgreSQL-specific error codes
   // 23505 = unique_violation
   if (err.code === '23505') {

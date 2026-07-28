@@ -187,13 +187,15 @@ const WebAuthnService = {
 
     const { verifyAuthenticationResponse } = await import('@simplewebauthn/server');
     const verification = await verifyAuthenticationResponse({
-      credential,
+      // The browser's authentication response (FIXED: was duplicate key overwriting)
+      response: credential,
       expectedChallenge: session.challenge,
       expectedOrigin,
       expectedRPID,
-      credential: {
-        id: storedIdToBuffer(cred.credential_id),
-        publicKey: publicKeyHexToBuffer(cred.public_key),
+      // The stored authenticator for comparison
+      authenticator: {
+        credentialID: storedIdToBuffer(cred.credential_id),
+        credentialPublicKey: publicKeyHexToBuffer(cred.public_key),
         counter: cred.counter,
         transports: JSON.parse(cred.transports || '[]'),
       },

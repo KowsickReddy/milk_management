@@ -1,6 +1,7 @@
 // ── Feed Service ──────────────────────────────────────────────────────────
 // Business logic for feed purchase operations
 
+const { AppError } = require('../middleware/errorHandler');
 const FeedRepository = require('../repositories/feedRepository');
 
 const FeedService = {
@@ -13,7 +14,9 @@ const FeedService = {
   },
 
   async delete(id) {
-    return await FeedRepository.delete(id);
+    const deleted = await FeedRepository.delete(id);
+    if (!deleted) throw new AppError('Feed purchase not found', 404, 'NOT_FOUND');
+    return { success: true };
   },
 };
 

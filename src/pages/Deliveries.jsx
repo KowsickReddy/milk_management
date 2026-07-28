@@ -182,11 +182,11 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, s
                   className="flex-1 bg-white border border-slate-200 px-3 py-1.5 rounded-xl text-sm font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                 />
                 <span className="text-xs font-bold text-slate-400">L</span>
-              </div>
-              <button
+              </div>                <button
                 onClick={() => {
-                  const qty = parseFloat(deliverQty || defaultQty);
-                  onQuickDeliver(customer, qty, effectiveShift, isEvening);
+                  // Use user-typed qty if provided, otherwise fallback to defaultQty
+                  const qty = deliverQty !== '' ? parseFloat(deliverQty) : defaultQty;
+                  onQuickDeliver(customer, isNaN(qty) ? defaultQty : qty, effectiveShift, isEvening);
                 }}
                 className="w-full btn btn-primary flex items-center justify-center gap-2 py-4 shadow-lg shadow-indigo-100 active:scale-95"
               >
@@ -399,6 +399,11 @@ export default function Deliveries() {
     is_deleted:         false,
   });
 
+  // Refetch customers on mount to ensure fresh data
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ['customers'] });
+  }, [queryClient]);
+
   const handleBulkDeliver = async () => {
     const selectedItems = pendingList.filter(({ customer }) =>
       selectedIds.has(getSelectionKey(customer.id, customer._shiftContext))
@@ -451,7 +456,8 @@ export default function Deliveries() {
       ? parseFloat(customer.evening_milk_quantity)
       : null;
     const defaultQty = eveningQty || parseFloat(customer.default_milk_quantity || customer.daily_milk_quantity || 0);
-    const qty = customQty || defaultQty;
+    // Guard against falsy 0: only use defaultQty when customQty is null/undefined/NaN
+    const qty = (customQty !== null && customQty !== undefined && !isNaN(customQty)) ? customQty : defaultQty;
     const payload = buildPayload(customer, 'delivered', qty, 0, shift);
     
     // 1. Instant Cache Update

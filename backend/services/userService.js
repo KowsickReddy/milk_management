@@ -37,6 +37,7 @@ const UserService = {
       full_name: data.full_name !== undefined ? data.full_name : current.full_name,
       phone: data.phone !== undefined ? data.phone : current.phone,
       is_active: data.is_active !== undefined ? data.is_active : current.is_active,
+      profile_photo: data.profile_photo !== undefined ? data.profile_photo : current.profile_photo,
     };
     // Only include hashedPin if a new PIN was provided (prevents NULL overwrite)
     if (data.pin) {

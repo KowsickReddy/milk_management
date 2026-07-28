@@ -81,8 +81,9 @@ const DeliveryRepository = {
 
   async upsertBatch(deliveries, connection) {
     const conn = connection || getPool();
+    const results = [];
     for (const d of deliveries) {
-      await conn.query(
+      const result = await conn.query(
         `INSERT INTO deliveries
          (customer_id, customer_name, date, scheduled_quantity, delivered_quantity, status, extra_milk, delivery_shift, is_deleted)
          VALUES ($1, $2, $3::date, $4, $5, $6, $7, $8, FALSE)
@@ -92,7 +93,8 @@ const DeliveryRepository = {
          delivered_quantity = EXCLUDED.delivered_quantity,
          status = EXCLUDED.status,
          extra_milk = EXCLUDED.extra_milk,
-         is_deleted = FALSE`,
+         is_deleted = FALSE
+         RETURNING *`,
         [
           d.customer_id, d.customer_name, d.date,
           d.scheduled_quantity || 0,
@@ -102,8 +104,9 @@ const DeliveryRepository = {
           d.delivery_shift || 'morning',
         ]
       );
+      results.push(result.rows[0]);
     }
-    return { count: deliveries.length };
+    return { count: deliveries.length, deliveries: results };
   },
 
   async softDelete(id) {
