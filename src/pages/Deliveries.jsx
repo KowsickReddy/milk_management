@@ -399,10 +399,10 @@ export default function Deliveries() {
     is_deleted:         false,
   });
 
-  // Refetch customers on mount to ensure fresh data
+  // Force refetch customers on mount to ensure fresh default_milk_quantity data
   useEffect(() => {
-    queryClient.invalidateQueries({ queryKey: ['customers'] });
-  }, [queryClient]);
+    refetchCust();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBulkDeliver = async () => {
     const selectedItems = pendingList.filter(({ customer }) =>
