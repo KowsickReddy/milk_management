@@ -31,7 +31,7 @@ const PaymentRepository = {
       'INSERT INTO payments (bill_id, customer_id, amount_paid, change_given, payment_method, is_partial, is_full_with_change, change_amount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
       [bill_id, customer_id, amount_paid, change_given || 0, payment_method || 'cash', is_partial || false, is_full_with_change || false, change_amount || 0]
     );
-    return { id: result.rows[0].id, ...data };
+    return result.rows[0] || { id: result.rows[0]?.id, ...data };
   },
 
   async getMonthlyTotal(year, month) {

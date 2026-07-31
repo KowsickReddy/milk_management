@@ -66,11 +66,20 @@ function CustomerFormModal({ isOpen, onClose, editingCustomer }) {
   }, [isOpen, editingCustomer, reset]);
 
   const mutation = useMutation({
-    mutationFn: editingCustomer
-      ? (data) => api.customers.update(editingCustomer.id, data)
-      : (data) => api.customers.create(data),
+    // Always sync default_milk_quantity with the morning quantity so the
+    // delivery section reads the SAME value the admin sees on this form.
+    mutationFn: (data) => {
+      const payload = {
+        ...data,
+        default_milk_quantity: Number(data.daily_milk_quantity || 0),
+      };
+      return editingCustomer
+        ? api.customers.update(editingCustomer.id, payload)
+        : api.customers.create(payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['deliveries'] });
       toast.success(editingCustomer ? '✅ Customer updated' : '✅ Customer added');
       reset();
       onClose();

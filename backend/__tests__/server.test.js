@@ -7,9 +7,10 @@ process.env.DB_PASSWORD = 'test-db-password';
 process.env.NODE_ENV = 'test';
 process.env.PORT = '0';
 
-// ── Mock mysql2/promise ────────────────────────────────────────────────────
+// ── Mock config/database (PostgreSQL) ──────────────────────────────────────
+// The backend uses the pg driver via ../config/database (getPool, withTransaction).
+// We mock that module so no real database is touched.
 const mockQuery = jest.fn();
-const mockExecute = jest.fn();
 const mockRelease = jest.fn();
 const mockBeginTransaction = jest.fn();
 const mockCommit = jest.fn();
@@ -17,7 +18,6 @@ const mockRollback = jest.fn().mockResolvedValue();
 
 const mockConnection = {
   query: mockQuery,
-  execute: mockExecute,
   beginTransaction: mockBeginTransaction,
   commit: mockCommit,
   rollback: mockRollback,
@@ -26,12 +26,18 @@ const mockConnection = {
 
 const mockPool = {
   query: mockQuery,
-  execute: mockExecute,
-  getConnection: jest.fn().mockResolvedValue(mockConnection),
+  connect: jest.fn().mockResolvedValue(mockConnection),
+  end: jest.fn(),
 };
 
-jest.mock('mysql2/promise', () => ({
-  createPool: jest.fn(() => mockPool),
+jest.mock('../config/database', () => ({
+  getPool: jest.fn(() => mockPool),
+  initializeDatabase: jest.fn(() => Promise.resolve(mockPool)),
+  checkHealth: jest.fn(() => Promise.resolve({ ok: true, latency: 0 })),
+  getConnection: jest.fn(() => Promise.resolve(mockConnection)),
+  withTransaction: jest.fn((cb) => cb(mockConnection)),
+  createUpdateTriggerFunction: jest.fn(() => Promise.resolve()),
+  applyUpdatedAtTrigger: jest.fn(() => Promise.resolve()),
 }));
 
 // ── Import server + supertest ──────────────────────────────────────────────
@@ -65,25 +71,39 @@ function token(ov = {}) {
 }
 const auth = (t) => ({ Authorization: `Bearer ${t}` });
 
-// Default: SELECT → empty rows, everything else → success
+// pg helper: rows → { rows, rowCount }
+const pgRows = (rows) => ({ rows, rowCount: rows.length });
+const pgOne = (row) => ({ rows: [row], rowCount: 1 });
+const pgNone = () => ({ rows: [], rowCount: 0 });
+const pgAffected = (n = 1) => ({ rows: [], rowCount: n });
+
+// Default: SELECT → empty rows, everything else → rowCount 1
 beforeEach(() => {
   jest.resetAllMocks();
 
   // Re-setup ALL critical mocks that were wiped by resetAllMocks()
   mockQuery.mockImplementation((sql) => {
     const s = String(sql).trim().toUpperCase();
-    if (s.startsWith('SELECT') || s.startsWith('WITH'))
-      return Promise.resolve([[]]);    // [rows=[]]
-    return Promise.resolve([{ affectedRows: 1, insertId: 99 }]);
+    if (s.startsWith('SELECT') || s.startsWith('WITH') || s.startsWith('BEGIN'))
+      return Promise.resolve(pgNone());
+    return Promise.resolve(pgAffected(1));
   });
-  mockExecute.mockImplementation(() => Promise.resolve([{ affectedRows: 1 }]));
   mockRelease.mockImplementation(() => {});
   mockBeginTransaction.mockImplementation(() => Promise.resolve());
   mockCommit.mockImplementation(() => Promise.resolve());
   mockRollback.mockImplementation(() => Promise.resolve());
 
-  // Re-setup mockPool.getConnection (resetAllMocks wipes mockResolvedValue)
-  mockPool.getConnection = jest.fn().mockResolvedValue(mockConnection);
+  // Re-setup module mocks (resetAllMocks wipes implementations)
+  const db = require('../config/database');
+  db.getPool.mockReturnValue(mockPool);
+  db.initializeDatabase.mockResolvedValue(mockPool);
+  db.checkHealth.mockResolvedValue({ ok: true, latency: 0 });
+  db.getConnection.mockResolvedValue(mockConnection);
+  db.withTransaction.mockImplementation((cb) => cb(mockConnection));
+  db.createUpdateTriggerFunction.mockResolvedValue();
+  db.applyUpdatedAtTrigger.mockResolvedValue();
+
+  mockPool.connect = jest.fn().mockResolvedValue(mockConnection);
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -103,7 +123,7 @@ describe('Health', () => {
 describe('POST /api/users/login', () => {
   it('valid credentials', async () => {
     const hp = await bcrypt.hash('1234', 10);
-    mockQuery.mockResolvedValueOnce([[{ ...userRow, pin: hp }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ ...userRow, pin: hp }));
     const r = await request(app).post('/api/users/login')
       .send({ username: 'admin', pin: '1234' });
     expect(r.status).toBe(200);
@@ -113,7 +133,7 @@ describe('POST /api/users/login', () => {
 
   it('invalid credentials → 401', async () => {
     const hp = await bcrypt.hash('wrong', 10);
-    mockQuery.mockResolvedValueOnce([[{ ...userRow, pin: hp }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ ...userRow, pin: hp }));
     const r = await request(app).post('/api/users/login')
       .send({ username: 'admin', pin: '0000' });
     expect(r.status).toBe(401);
@@ -130,7 +150,7 @@ describe('POST /api/users/login', () => {
 describe('POST /api/customers/login', () => {
   it('valid credentials', async () => {
     const hp = await bcrypt.hash('4321', 10);
-    mockQuery.mockResolvedValueOnce([[{ ...customer, pin: hp }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ ...customer, pin: hp }));
     const r = await request(app).post('/api/customers/login')
       .send({ phone: '9876543210', pin: '4321' });
     expect(r.status).toBe(200);
@@ -138,7 +158,7 @@ describe('POST /api/customers/login', () => {
   });
 
   it('inactive customer → 401', async () => {
-    mockQuery.mockResolvedValueOnce([[{ ...customer, pin: await bcrypt.hash('4321', 10), status: 'inactive' }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ ...customer, pin: await bcrypt.hash('4321', 10), status: 'inactive' }));
     const r = await request(app).post('/api/customers/login')
       .send({ phone: '9876543210', pin: '4321' });
     expect(r.status).toBe(401);
@@ -167,13 +187,13 @@ describe('Auth middleware', () => {
 describe('Customers CRUD', () => {
   const t = token();
   it('GET /api/customers', async () => {
-    mockQuery.mockResolvedValueOnce([[customer]]);
+    mockQuery.mockResolvedValueOnce(pgOne(customer));
     const r = await request(app).get('/api/customers').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body[0].name).toBe('Test');
   });
   it('GET /api/customers/:id', async () => {
-    mockQuery.mockResolvedValueOnce([[customer]]);
+    mockQuery.mockResolvedValueOnce(pgOne(customer));
     const r = await request(app).get('/api/customers/1').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(1);
@@ -183,7 +203,7 @@ describe('Customers CRUD', () => {
     expect(r.status).toBe(404);
   });
   it('POST /api/customers', async () => {
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2, name: 'New' }));
     const r = await request(app).post('/api/customers').set(auth(t))
       .send({ name: 'New', phone: '9876543211', daily_milk_quantity: 3, milk_rate_per_liter: 55 });
     expect(r.status).toBe(201);
@@ -195,18 +215,18 @@ describe('Customers CRUD', () => {
     expect(r.status).toBe(400);
   });
   it('PUT /api/customers/:id', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Updated', daily_milk_quantity: 5 }));
     const r = await request(app).put('/api/customers/1').set(auth(t))
       .send({ name: 'Updated', daily_milk_quantity: 5 });
     expect(r.status).toBe(200);
   });
   it('DELETE /api/customers/:id', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).delete('/api/customers/1').set(auth(t));
     expect(r.status).toBe(200);
   });
   it('DELETE — 404', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 0 }]);
+    mockQuery.mockResolvedValueOnce(pgAffected(0));
     const r = await request(app).delete('/api/customers/999').set(auth(t));
     expect(r.status).toBe(404);
   });
@@ -216,13 +236,13 @@ describe('Customers CRUD', () => {
 describe('User Management', () => {
   const t = token();
   it('GET /api/users', async () => {
-    mockQuery.mockResolvedValueOnce([[userRow]]);
+    mockQuery.mockResolvedValueOnce(pgOne(userRow));
     const r = await request(app).get('/api/users').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body[0].username).toBe('admin');
   });
   it('POST /api/users', async () => {
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2, username: 'worker1' }));
     const r = await request(app).post('/api/users').set(auth(t))
       .send({ username: 'worker1', pin: '1234', role: 'worker' });
     expect(r.status).toBe(201);
@@ -233,20 +253,21 @@ describe('User Management', () => {
     expect(r.status).toBe(400);
   });
   it('PUT /api/users/:id', async () => {
-    mockQuery.mockResolvedValueOnce([[{ ...userRow, username: 'worker1' }]]); // SELECT
-    mockQuery.mockResolvedValueOnce([{}]); // UPDATE
-    mockQuery.mockResolvedValueOnce([[{ ...userRow, username: 'worker1' }]]); // SELECT back
+    mockQuery.mockResolvedValueOnce(pgOne({ ...userRow, username: 'worker1' })); // SELECT (findById)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE
+    mockQuery.mockResolvedValueOnce(pgOne({ ...userRow, username: 'worker1' })); // SELECT back (findById)
     const r = await request(app).put('/api/users/2').set(auth(t))
       .send({ full_name: 'Updated' });
     expect(r.status).toBe(200);
   });
   it('DELETE /api/users/:id — non-admin', async () => {
-    mockQuery.mockResolvedValueOnce([[{ ...userRow, username: 'worker1' }]]); // SELECT
+    mockQuery.mockResolvedValueOnce(pgOne({ ...userRow, username: 'worker1' })); // SELECT (findById)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // DELETE
     const r = await request(app).delete('/api/users/2').set(auth(t));
     expect(r.status).toBe(200);
   });
   it('DELETE — protect admin account', async () => {
-    mockQuery.mockResolvedValueOnce([[userRow]]); // SELECT finds admin
+    mockQuery.mockResolvedValueOnce(pgOne(userRow)); // SELECT finds admin
     const r = await request(app).delete('/api/users/1').set(auth(t));
     expect(r.status).toBe(400);
   });
@@ -256,20 +277,19 @@ describe('User Management', () => {
 describe('Deliveries', () => {
   const t = token();
   it('GET /api/deliveries?date=...', async () => {
-    mockQuery.mockResolvedValueOnce([[delivery]]);
+    mockQuery.mockResolvedValueOnce(pgOne(delivery));
     const r = await request(app).get('/api/deliveries?date=2024-01-15').set(auth(t));
     expect(r.status).toBe(200);
   });
   it('GET /api/deliveries?startDate=...', async () => {
-    mockQuery.mockResolvedValueOnce([[delivery]]);
+    mockQuery.mockResolvedValueOnce(pgOne(delivery));
     const r = await request(app).get('/api/deliveries?startDate=2024-01-01&endDate=2024-01-31').set(auth(t));
     expect(r.status).toBe(200);
   });
   it('POST /api/deliveries', async () => {
-    // Queries: 1=leaveCheck(SELECT), 2=INSERT, 3=SELECTback
-    mockQuery.mockResolvedValueOnce([[]]);     // leave check → empty
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]); // INSERT
-    mockQuery.mockResolvedValueOnce([[delivery]]); // SELECT back
+    // 1=leaveCheck(SELECT), 2=INSERT (upsert RETURNING *)
+    mockQuery.mockResolvedValueOnce(pgNone());     // leave check → empty
+    mockQuery.mockResolvedValueOnce(pgOne({ ...delivery, id: 2 })); // INSERT
     const r = await request(app).post('/api/deliveries').set(auth(t))
       .send({ customer_id: 1, customer_name: 'Test', date: '2024-01-15',
         delivered_quantity: 2, delivery_shift: 'morning' });
@@ -278,6 +298,20 @@ describe('Deliveries', () => {
   it('POST — missing customer_id → 400', async () => {
     const r = await request(app).post('/api/deliveries').set(auth(t))
       .send({ date: '2024-01-15' });
+    expect(r.status).toBe(400);
+  });
+  it('POST /api/deliveries — occasional shift accepted', async () => {
+    // Regression test: occasional customers (shift='occasional') must be confirmable.
+    mockQuery.mockResolvedValueOnce(pgNone()); // leave check → empty
+    mockQuery.mockResolvedValueOnce(pgOne({ ...delivery, id: 3, delivery_shift: 'occasional' }));
+    const r = await request(app).post('/api/deliveries').set(auth(t))
+      .send({ customer_id: 1, customer_name: 'Test', date: '2024-01-15',
+        delivered_quantity: 2, delivery_shift: 'occasional' });
+    expect(r.status).toBe(201);
+  });
+  it('POST /api/deliveries — invalid shift → 400', async () => {
+    const r = await request(app).post('/api/deliveries').set(auth(t))
+      .send({ customer_id: 1, date: '2024-01-15', delivered_quantity: 2, delivery_shift: 'night' });
     expect(r.status).toBe(400);
   });
   it('POST /api/deliveries/batch', async () => {
@@ -293,7 +327,7 @@ describe('Deliveries', () => {
     expect(r.status).toBe(400);
   });
   it('PATCH /api/deliveries/:id/soft-delete', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).patch('/api/deliveries/1/soft-delete').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -308,8 +342,7 @@ describe('Leaves', () => {
   });
   it('POST /api/leave — future date', async () => {
     const fd = new Date(Date.now() + 864e5 * 7).toISOString().split('T')[0];
-    mockQuery.mockResolvedValueOnce([[{ id: 1, name: 'Test' }]]); // customer check
-    mockQuery.mockResolvedValueOnce([{ insertId: 1 }]); // INSERT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1 })); // INSERT
     const r = await request(app).post('/api/leave').set(auth(t))
       .send({ customer_id: 1, start_date: fd, end_date: fd, reason: 'Holiday' });
     expect(r.status).toBe(201);
@@ -320,7 +353,7 @@ describe('Leaves', () => {
     expect(r.status).toBe(400);
   });
   it('DELETE /api/leave/:id', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).delete('/api/leave/1').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -330,13 +363,13 @@ describe('Leaves', () => {
 describe('Bills', () => {
   const t = token();
   it('GET /api/bills', async () => {
-    mockQuery.mockResolvedValueOnce([[bill]]);
+    mockQuery.mockResolvedValueOnce(pgOne(bill));
     const r = await request(app).get('/api/bills').set(auth(t));
     expect(r.status).toBe(200);
     expect(Array.isArray(r.body)).toBe(true);
   });
   it('POST /api/bills', async () => {
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ ...bill, id: 2, bill_month: 2 }));
     const r = await request(app).post('/api/bills').set(auth(t))
       .send({ customer_id: 1, customer_name: 'Test', bill_month: 2, bill_year: 2024, total_quantity: 28, total_amount: 1400 });
     expect(r.status).toBe(201);
@@ -348,13 +381,14 @@ describe('Bills', () => {
     expect(r.status).toBe(400);
   });
   it('PUT /api/bills/:id', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
-    mockQuery.mockResolvedValueOnce([[bill]]);
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE
+    mockQuery.mockResolvedValueOnce(pgOne(bill));   // SELECT back
     const r = await request(app).put('/api/bills/1').set(auth(t))
       .send({ paid: true, amount_paid: 1400, balance: 0 });
     expect(r.status).toBe(200);
   });
   it('DELETE /api/bills/:id', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).delete('/api/bills/1').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -363,7 +397,7 @@ describe('Bills', () => {
     expect(r.status).toBe(200);
   });
   it('GET /api/bills/:id', async () => {
-    mockQuery.mockResolvedValueOnce([[bill]]);
+    mockQuery.mockResolvedValueOnce(pgOne(bill));
     const r = await request(app).get('/api/bills/1').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.id).toBe(1);
@@ -378,17 +412,16 @@ describe('Payments', () => {
     expect(r.status).toBe(200);
   });
   it('POST /api/payments — partial', async () => {
-    // Queries: 1=SELECTbill, 2=INSERTpayment, 3=UPDATEbill, 4=UPDATEcustomer, 5=SELECTcustomercredit
-    mockQuery.mockResolvedValueOnce([[{ ...bill, balance: 1400 }]]);
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
-    // Remaining queries use default → { affectedRows: 1 }
+    // 1=SELECTbill FOR UPDATE, 2=INSERTpayment, 3=UPDATEbill, 4=SELECTcustomercredit
+    mockQuery.mockResolvedValueOnce(pgOne({ ...bill, balance: 1400 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2 }));
     const r = await request(app).post('/api/payments').set(auth(t))
       .send({ bill_id: 1, amount_paid: 700 });
     expect(r.status).toBe(201);
   });
   it('POST /api/payments — overpayment', async () => {
-    mockQuery.mockResolvedValueOnce([[{ ...bill, balance: 1400 }]]);
-    mockQuery.mockResolvedValueOnce([{ insertId: 3 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ ...bill, balance: 1400 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 3 }));
     const r = await request(app).post('/api/payments').set(auth(t))
       .send({ bill_id: 1, amount_paid: 1500 });
     expect(r.status).toBe(201);
@@ -400,7 +433,7 @@ describe('Payments', () => {
     expect(r.status).toBe(400);
   });
   it('GET /api/payments/bill/:billId', async () => {
-    mockQuery.mockResolvedValueOnce([[bill]]); // SELECT bill for auth
+    mockQuery.mockResolvedValueOnce(pgOne(bill)); // SELECT bill for auth
     const r = await request(app).get('/api/payments/bill/1').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -410,17 +443,17 @@ describe('Payments', () => {
 describe('Credits', () => {
   const t = token();
   it('GET /api/credits/:customerId', async () => {
-    mockQuery.mockResolvedValueOnce([[{ credit_balance: 200 }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ credit_balance: 200 }));
     const r = await request(app).get('/api/credits/1').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.credit_balance).toBe(200);
   });
   it('POST /api/credits/apply', async () => {
-    // Queries: 1=SELECTcustomer, 2=SELECTbill, 3=UPDATEbill, 4=UPDATEcustomer
-    mockQuery.mockResolvedValueOnce([[{ credit_balance: 200 }]]);
-    mockQuery.mockResolvedValueOnce([[{ balance: 500, amount_paid: 0 }]]);
-    mockQuery.mockResolvedValueOnce([{}]); // UPDATE bill
-    mockQuery.mockResolvedValueOnce([{}]); // UPDATE customer
+    // 1=SELECTcustomer credit, 2=SELECTbill, 3=UPDATEbill, 4=UPDATEcustomer
+    mockQuery.mockResolvedValueOnce(pgOne({ credit_balance: 200 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ balance: 500, amount_paid: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE bill
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE customer
     const r = await request(app).post('/api/credits/apply').set(auth(t))
       .send({ customer_id: 1, bill_id: 1, amount: 200 });
     expect(r.status).toBe(200);
@@ -431,13 +464,12 @@ describe('Credits', () => {
 describe('Expenses', () => {
   const t = token();
   it('GET /api/expenses', async () => {
-    mockQuery.mockResolvedValueOnce([[{ id: 1, category: 'Feed', amount: 500, expense_date: '2024-01-15' }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, category: 'Feed', amount: 500, expense_date: '2024-01-15' }));
     const r = await request(app).get('/api/expenses').set(auth(t));
     expect(r.status).toBe(200);
   });
   it('POST /api/expenses', async () => {
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
-    mockQuery.mockResolvedValueOnce([[{ id: 2, category: 'Feed', amount: 500, expense_date: '2024-01-15' }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2, category: 'Feed', amount: 500, expense_date: '2024-01-15' }));
     const r = await request(app).post('/api/expenses').set(auth(t))
       .send({ category: 'Feed', amount: 500, expense_date: '2024-01-15' });
     expect(r.status).toBe(201);
@@ -448,13 +480,13 @@ describe('Expenses', () => {
     expect(r.status).toBe(400);
   });
   it('PUT /api/expenses/:id', async () => {
-    mockQuery.mockResolvedValueOnce([{ affectedRows: 1 }]);
-    mockQuery.mockResolvedValueOnce([[{ id: 1, category: 'Feed', amount: 600, expense_date: '2024-01-15' }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, category: 'Feed', amount: 600, expense_date: '2024-01-15' }));
     const r = await request(app).put('/api/expenses/1').set(auth(t))
       .send({ category: 'Feed', amount: 600, expense_date: '2024-01-15' });
     expect(r.status).toBe(200);
   });
   it('DELETE /api/expenses/:id', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).delete('/api/expenses/1').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -468,7 +500,7 @@ describe('Cattle', () => {
     expect(r.status).toBe(200);
   });
   it('POST /api/cattle', async () => {
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2, tag_number: 'C002' }));
     const r = await request(app).post('/api/cattle').set(auth(t))
       .send({ tag_number: 'C002', breed: 'Jersey' });
     expect(r.status).toBe(201);
@@ -478,11 +510,13 @@ describe('Cattle', () => {
     expect(r.status).toBe(400);
   });
   it('PUT /api/cattle/:id', async () => {
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, tag_number: 'C001', breed: 'Updated' }));
     const r = await request(app).put('/api/cattle/1').set(auth(t))
       .send({ tag_number: 'C001', breed: 'Updated' });
     expect(r.status).toBe(200);
   });
   it('DELETE /api/cattle/:id', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).delete('/api/cattle/1').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -496,13 +530,14 @@ describe('Feed', () => {
     expect(r.status).toBe(200);
   });
   it('POST /api/feed', async () => {
-    mockQuery.mockResolvedValueOnce([{ insertId: 2 }]);
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2 }));
     const r = await request(app).post('/api/feed').set(auth(t))
       .send({ feed_type: 'Silage', bags_bought: 10, cost_per_bag: 200, purchase_date: '2024-01-15' });
     expect(r.status).toBe(201);
     expect(r.body.total_cost).toBe(2000);
   });
   it('DELETE /api/feed/:id', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).delete('/api/feed/1').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -512,36 +547,36 @@ describe('Feed', () => {
 describe('Analytics', () => {
   const t = token();
   it('GET /api/analytics/dashboard', async () => {
-    mockQuery.mockResolvedValueOnce([[{ count: 10 }]]);
-    mockQuery.mockResolvedValueOnce([[{ count: 8, total_milk: 20 }]]);
-    mockQuery.mockResolvedValueOnce([[{ count: 2 }]]);
-    mockQuery.mockResolvedValueOnce([[{ count: 15 }]]);
-    mockQuery.mockResolvedValueOnce([[{ billed: 5000, collected: 3000, pending: 2000 }]]);
-    mockQuery.mockResolvedValueOnce([[{ count: 3, total: 2000 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total: 500 }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 10 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 8, total_milk: 20 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ billed: 5000, collected: 3000, pending: 2000 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 3, total: 2000 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total: 500 }));
     const r = await request(app).get('/api/analytics/dashboard').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.total_customers).toBe(15);
   });
   it('GET /api/analytics/earnings', async () => {
-    mockQuery.mockResolvedValueOnce([[{ total_billed: 5000, total_paid: 3000, total_pending: 2000 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total_expenses: 1000 }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ total_billed: 5000, total_paid: 3000, total_pending: 2000 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_expenses: 1000 }));
     const r = await request(app).get('/api/analytics/earnings?year=2024&month=1').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.profit).toBe(2000);
   });
   it('GET /api/stats', async () => {
-    mockQuery.mockResolvedValueOnce([[{ count: 15 }]]);
-    mockQuery.mockResolvedValueOnce([[{ count: 8 }]]);
-    mockQuery.mockResolvedValueOnce([[{ count: 3, total: 2000 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total: 3000 }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 8 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ count: 3, total: 2000 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total: 3000 }));
     const r = await request(app).get('/api/stats').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.activeCustomers).toBe(15);
   });
   it('GET /api/analytics/farm', async () => {
-    mockQuery.mockResolvedValueOnce([[{ total_cattle: 5, total_investment: 50000 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total_bags: 50, total_feed_cost: 10000 }]]);
+    mockQuery.mockResolvedValueOnce(pgOne({ total_cattle: 5, total_investment: 50000 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_bags: 50, total_feed_cost: 10000 }));
     const r = await request(app).get('/api/analytics/farm').set(auth(t));
     expect(r.status).toBe(200);
   });
@@ -557,13 +592,13 @@ describe('Reports', () => {
     expect(r.body.month).toBe('1');
   });
   it('GET /api/reports/daily', async () => {
-    mockQuery.mockResolvedValueOnce([[delivery]]);
+    mockQuery.mockResolvedValueOnce(pgOne(delivery));
     const r = await request(app).get('/api/reports/daily?date=2024-01-15').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.date).toBe('2024-01-15');
   });
   it('GET /api/reports/customer/:id', async () => {
-    mockQuery.mockResolvedValueOnce([[customer]]);
+    mockQuery.mockResolvedValueOnce(pgOne(customer));
     const r = await request(app).get('/api/reports/customer/1?year=2024&month=1').set(auth(t));
     expect(r.status).toBe(200);
     expect(r.body.customer.id).toBe(1);
@@ -575,9 +610,9 @@ describe('Portal', () => {
   const ct = token({ id: 1, role: 'customer', username: '9876543210' });
 
   it('GET /api/portal/dashboard/:customerId', async () => {
-    mockQuery.mockResolvedValueOnce([[customer]]);          // customer
-    mockQuery.mockResolvedValueOnce([[]]);                    // deliveries (empty)
-    mockQuery.mockResolvedValueOnce([[{ total_due: 500 }]]); // bills
+    mockQuery.mockResolvedValueOnce(pgOne(customer));          // customer
+    mockQuery.mockResolvedValueOnce(pgNone());                   // deliveries (empty)
+    mockQuery.mockResolvedValueOnce(pgOne({ total_due: 500 })); // bills
     const r = await request(app).get('/api/portal/dashboard/1').set(auth(ct));
     expect(r.status).toBe(200);
     expect(r.body.customer).toBeDefined();
@@ -592,11 +627,11 @@ describe('Portal', () => {
     expect(r.status).toBe(200);
   });
   it('POST /api/portal/update-quantity', async () => {
-    // Queries: 1=SELECTcustomer, 2=SELECTexisting, 3=INSERTdelivery, 4=INSERTalert
-    mockQuery.mockResolvedValueOnce([[{ name: 'Test', phone: '9876543210', default_milk_quantity: 2 }]]);
-    mockQuery.mockResolvedValueOnce([[]]); // no existing delivery
-    mockQuery.mockResolvedValueOnce([{ insertId: 1 }]); // INSERT delivery
-    mockQuery.mockResolvedValueOnce([{}]); // INSERT alert
+    // 1=SELECTcustomer, 2=SELECTexisting, 3=INSERTdelivery, 4=INSERTalert
+    mockQuery.mockResolvedValueOnce(pgOne({ name: 'Test', phone: '9876543210', default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgNone()); // no existing delivery
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1 })); // INSERT delivery
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // INSERT alert
     const r = await request(app).post('/api/portal/update-quantity').set(auth(ct))
       .send({ customer_id: 1, date: '2024-01-15', quantity: 3, session: 'morning' });
     expect(r.status).toBe(200);
@@ -607,10 +642,10 @@ describe('Portal', () => {
     expect(r.status).toBe(400);
   });
   it('POST /api/portal/complaints', async () => {
-    // Queries: 1=SELECTcustomer, 2=INSERTcomplaint, 3=INSERTalert
-    mockQuery.mockResolvedValueOnce([[{ name: 'Test', phone: '9876543210' }]]);
-    mockQuery.mockResolvedValueOnce([{ insertId: 1 }]);
-    mockQuery.mockResolvedValueOnce([{}]);
+    // 1=SELECTcustomer, 2=INSERTcomplaint, 3=INSERTalert
+    mockQuery.mockResolvedValueOnce(pgOne({ name: 'Test', phone: '9876543210' }));
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1));
     const r = await request(app).post('/api/portal/complaints').set(auth(ct))
       .send({ customer_id: 1, subject: 'Issue', message: 'Help' });
     expect(r.status).toBe(201);
@@ -638,6 +673,7 @@ describe('Admin', () => {
     expect(r.status).toBe(200);
   });
   it('PATCH /api/customers/:id/pin', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE pin
     const r = await request(app).patch('/api/customers/1/pin').set(auth(t))
       .send({ pin: '5678' });
     expect(r.status).toBe(200);
@@ -654,19 +690,21 @@ describe('Bill Generation', () => {
   const t = token();
 
   it('POST /api/bills/generate', async () => {
-    // generateBill query order:
-    // 1=SELECTcustomer, 2=SELECTdeliverytotals, 3=SELECTdeliveryleave,
-    // 4=SELECTlongleave (LeaveRepository), 5=UPDATEcredit,
-    // 6=findByCustomerMonth (SELECT existing), 7=INSERTbill, 8=SELECTbillback
-    mockQuery.mockResolvedValueOnce([[{ id: 1, name: 'Test', milk_rate_per_liter: 50,
-      credit_balance: 100, daily_milk_quantity: 2, default_milk_quantity: 2 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total_delivered: 30, total_extra: 5, extra_days: 3, delivery_days: 15 }]]);
-    mockQuery.mockResolvedValueOnce([[{ leave_days: 2 }]]);
-    mockQuery.mockResolvedValueOnce([[{ leave_days: 0 }]]);
-    mockQuery.mockResolvedValueOnce([{}]); // UPDATE credit
-    mockQuery.mockResolvedValueOnce([[]]); // no existing bill (findByCustomerMonth)
-    mockQuery.mockResolvedValueOnce([{ insertId: 5 }]); // INSERT bill
-    mockQuery.mockResolvedValueOnce([[{ id: 5, customer_id: 1 }]]); // SELECT bill back
+    // generateBill query order (pg uses client.query('BEGIN')/'COMMIT'):
+    // 1=BEGIN, 2=SELECTcustomer, 3=SELECTdeliverytotals, 4=SELECTdeliveryleave,
+    // 5=SELECTlongleave, 6=UPDATEcredit, 7=findByCustomerMonth(SELECT),
+    // 8=INSERTbill, 9=COMMIT, 10=SELECTbillback
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 50,
+      credit_balance: 100, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 5, extra_days: 3, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
+    mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill (findByCustomerMonth)
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 5 })); // INSERT bill
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 5, customer_id: 1 })); // SELECT bill back
     const r = await request(app).post('/api/bills/generate').set(auth(t))
       .send({ customer_id: 1, month: 1, year: 2024 });
     expect(r.status).toBe(201);
@@ -680,27 +718,34 @@ describe('Bill Generation', () => {
   });
 
   it('POST /api/bills/generate-batch', async () => {
-    mockQuery.mockResolvedValueOnce([[{ id: 1 }, { id: 2 }]]); // customers
-    // Customer 1: 8 queries (customer, totals, dleave, lleave, updatecredit, existing, insert, selectback)
-    mockQuery.mockResolvedValueOnce([[{ id: 1, name: 'A', milk_rate_per_liter: 50,
-      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }]]);
-    mockQuery.mockResolvedValueOnce([[{ leave_days: 0 }]]);
-    mockQuery.mockResolvedValueOnce([[{ leave_days: 0 }]]);
-    mockQuery.mockResolvedValueOnce([{}]); // UPDATE credit
-    mockQuery.mockResolvedValueOnce([[]]); // no existing bill
-    mockQuery.mockResolvedValueOnce([{ insertId: 10 }]);
-    mockQuery.mockResolvedValueOnce([[{ id: 10, customer_id: 1 }]]);
+    mockQuery.mockResolvedValueOnce(pgRows([{ id: 1 }, { id: 2 }])); // customers
+
+    // Customer 1: BEGIN, customer, totals, dleave, lleave, updatecredit, existing, insert, COMMIT, selectback
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'A', milk_rate_per_liter: 50,
+      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
+    mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 10 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 10, customer_id: 1 }));
+
     // Customer 2: same pattern
-    mockQuery.mockResolvedValueOnce([[{ id: 1, name: 'B', milk_rate_per_liter: 45,
-      credit_balance: 0, daily_milk_quantity: 1, default_milk_quantity: 1 }]]);
-    mockQuery.mockResolvedValueOnce([[{ total_delivered: 15, total_extra: 0, extra_days: 0, delivery_days: 15 }]]);
-    mockQuery.mockResolvedValueOnce([[{ leave_days: 0 }]]);
-    mockQuery.mockResolvedValueOnce([[{ leave_days: 0 }]]);
-    mockQuery.mockResolvedValueOnce([{}]); // UPDATE credit
-    mockQuery.mockResolvedValueOnce([[]]); // no existing bill
-    mockQuery.mockResolvedValueOnce([{ insertId: 11 }]);
-    mockQuery.mockResolvedValueOnce([[{ id: 11, customer_id: 2 }]]);
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'B', milk_rate_per_liter: 45,
+      credit_balance: 0, daily_milk_quantity: 1, default_milk_quantity: 1 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 15, total_extra: 0, extra_days: 0, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
+    mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 11 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 11, customer_id: 2 }));
+
     const r = await request(app).post('/api/bills/generate-batch').set(auth(t))
       .send({ month: 1, year: 2024 });
     expect(r.status).toBe(200);

@@ -27,7 +27,7 @@ const LeaveRepository = {
       'INSERT INTO leave_requests (customer_id, start_date, end_date, reason) VALUES ($1, $2, $3, $4) RETURNING *',
       [customer_id, start_date, end_date || null, reason || null]
     );
-    return { id: result.rows[0].id, ...data };
+    return result.rows[0] || { id: result.rows[0]?.id, ...data };
   },
 
   async delete(id) {

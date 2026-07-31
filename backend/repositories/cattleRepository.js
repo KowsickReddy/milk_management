@@ -24,7 +24,7 @@ const CattleRepository = {
         (is_in_calf && gestation_start_date) ? gestation_start_date : null,
       ]
     );
-    return { id: result.rows[0].id, ...data };
+    return result.rows[0] || { id: result.rows[0]?.id, ...data };
   },
 
   async update(id, data) {

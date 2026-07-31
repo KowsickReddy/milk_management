@@ -15,8 +15,8 @@ const cattleController = {
   }),
 
   update: asyncHandler(async (req, res) => {
-    await CattleService.update(req.params.id, req.body);
-    res.json({ id: req.params.id, ...req.body });
+    const cattle = await CattleService.update(req.params.id, req.body);
+    res.json(cattle);
   }),
 
   delete: asyncHandler(async (req, res) => {

@@ -58,7 +58,7 @@ const BillRepository = {
       'INSERT INTO bills (customer_id, customer_name, bill_month, bill_year, total_quantity, total_amount, balance, bill_start_date, bill_end_date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
       [customer_id, customer_name, bill_month, bill_year, total_quantity || 0, total_amount || 0, balance || total_amount || 0, bill_start_date, bill_end_date]
     );
-    return { id: result.rows[0].id, ...data };
+    return result.rows[0] || { id: result.rows[0]?.id, ...data };
   },
 
   async upsert(

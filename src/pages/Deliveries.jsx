@@ -131,7 +131,7 @@ function DeliveryCard({ customer, delivery, onAction, onQuickDeliver, onReset, s
             <h3 className="font-black text-slate-900 text-[15px] tracking-tight leading-none">#{customer.id} {customer.name}</h3>
             <div className="flex items-center gap-2 mt-2">
               <span className="px-2 py-0.5 rounded-md bg-slate-50 border border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                {shiftIcon} {customer.shift === 'both' ? effectiveShift : customer.shift}
+                {shiftIcon} <span className="capitalize">{customer.shift === 'both' ? effectiveShift : customer.shift}</span>
               </span>
               {customer.phone && (
                 <span className="text-[10px] font-bold text-slate-300 tracking-tighter">📞 {customer.phone}</span>
@@ -266,9 +266,14 @@ export default function Deliveries() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const undoTimeouts = useRef({});
 
+  // staleTime: 0 ensures the delivery page ALWAYS reads the latest customer
+  // quantities (default_milk_quantity / evening_milk_quantity) instead of
+  // serving the 1-minute global cache from the Customers page.
   const { data: customers = [], isLoading: loadingCust, isError: custIsError, error: _custError, refetch: refetchCust } = useQuery({
     queryKey: ['customers'],
     queryFn:  () => api.customers.getAll(),
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const { data: allLeaves = [] } = useQuery({
@@ -407,11 +412,6 @@ export default function Deliveries() {
     delivery_shift:     deliveryShift || customer.shift || 'morning',
     is_deleted:         false,
   });
-
-  // Force refetch customers on mount to ensure fresh default_milk_quantity data
-  useEffect(() => {
-    refetchCust();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleBulkDeliver = async () => {
     const selectedItems = pendingList.filter(({ customer }) =>
@@ -683,9 +683,10 @@ export default function Deliveries() {
             value={selectedShift}
             onChange={(e) => setSelectedShift(e.target.value)}
             options={[
-              { value: 'all',     label: '🌅 All Shifts' },
-              { value: 'morning', label: '☀️ Morning' },
-              { value: 'evening', label: '🌙 Evening' },
+              { value: 'all',        label: '🌅 All Shifts' },
+              { value: 'morning',    label: '☀️ Morning' },
+              { value: 'evening',    label: '🌙 Evening' },
+              { value: 'occasional', label: '🔄 Occasional' },
             ]}
             className="w-full sm:w-40"
           />
