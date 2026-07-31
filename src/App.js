@@ -13,6 +13,7 @@ import { Button, Card } from './ui';
 import { cn } from './lib/utils';
 import { AnimatePresence, motion } from 'framer-motion';
 import { startAuthentication } from '@simplewebauthn/browser';
+import { resetTokenExpiredGuard } from './services/api';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -358,6 +359,8 @@ function AppContent() {
   }, [currentPage]);
 
   const handleLogin  = (userData) => {
+    // Re-arm the token-expiry guard so future expired-token errors redirect again
+    resetTokenExpiredGuard();
     if (userData.token) localStorage.setItem('token', userData.token);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);

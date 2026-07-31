@@ -285,7 +285,7 @@ function CustomerSummaryModal({ isOpen, onClose, customer }) {
   // ── Calendar data ────────────────────────────────────────────────────────
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
 
-  const { data: calendarData, isLoading: calLoading } = useQuery({
+  const { data: calendarData, isLoading: calLoading, isError: calError, refetch: refetchCalendar } = useQuery({
     queryKey: ['customer-calendar', customer?.id, year, month],
     queryFn: () => api.portal.getCalendar(customer.id, year, month),
     enabled: !!customer,
@@ -331,7 +331,9 @@ function CustomerSummaryModal({ isOpen, onClose, customer }) {
   });
 
   if (!isOpen || !customer) return null;
-  const hasError = reportError || billsError || leavesError;
+  // Include calendar query errors too — otherwise a failed calendar fetch
+  // silently renders an all-gray blank grid with no error or retry.
+  const hasError = reportError || billsError || leavesError || calError;
   if (hasError) {
     return (
       <ModalContent isOpen={isOpen} onClose={onClose} size="2xl">
@@ -343,6 +345,7 @@ function CustomerSummaryModal({ isOpen, onClose, customer }) {
               <Button onClick={() => refetchReport()} size="sm">Retry Report</Button>
               <Button onClick={() => refetchBills()} size="sm">Retry Bills</Button>
               <Button onClick={() => refetchLeaves()} size="sm">Retry Leaves</Button>
+              <Button onClick={() => refetchCalendar()} size="sm">Retry Calendar</Button>
             </div>
           </div>
         </ModalBody>

@@ -339,10 +339,12 @@ export default function Deliveries() {
         : possibleShifts;
 
       shifts.forEach(shift => {
-        // Match by customer_id AND delivery_shift
-        const delivery = deliveries.find(d => 
+        // Match by customer_id AND delivery_shift.
+        // NOTE: leave-overlay rows for 'both'-shift customers carry
+        // delivery_shift='both' — so treat 'both' as covering both shifts.
+        const delivery = deliveries.find(d =>
           Number(d.customer_id) === Number(customer.id) &&
-          (d.delivery_shift || 'morning') === shift
+          ((d.delivery_shift || 'morning') === shift || d.delivery_shift === 'both')
         );
         
         // Calculate the right quantity for this shift
@@ -538,10 +540,12 @@ export default function Deliveries() {
     if (!modalState.payload) return;
     const payload = modalState.payload;
     const customerId = payload.customer_id;
+    const shift = payload.delivery_shift || 'morning';
     
     closeModal();
 
-    // 1. Instant Cache Update
+    // 1. Instant Cache Update — match by customer_id AND delivery_shift so a
+    // 'both'-shift customer's morning/evening cards aren't overwritten by mistake
     queryClient.setQueryData(['deliveries', selectedDate], (old = []) => {
       const entry = { 
         ...payload, 
@@ -550,7 +554,7 @@ export default function Deliveries() {
         leave: payload.status === 'leave',
         status: payload.status
       };
-      const idx = old.findIndex(d => Number(d.customer_id) === Number(customerId));
+      const idx = old.findIndex(d => Number(d.customer_id) === Number(customerId) && (d.delivery_shift || 'morning') === shift);
       if (idx > -1) {
         const next = [...old];
         next[idx] = entry;

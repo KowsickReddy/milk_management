@@ -35,9 +35,16 @@ export function formatTime(date) {
   });
 }
 
-// Get today's date string
+// Format a Date as a LOCAL-time date string (YYYY-MM-DD).
+// Never use toISOString() for this — it returns UTC, which for India
+// (UTC+5:30) shows YESTERDAY's date between local midnight and 5:30 AM.
+function toLocalDateString(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Get today's date string in local time
 export function getToday() {
-  return new Date().toISOString().split('T')[0];
+  return toLocalDateString(new Date());
 }
 
 // Get month name
@@ -118,7 +125,7 @@ export function getGreeting() {
   return 'Good Evening';
 }
 
-// Get week dates
+// Get week dates (local time, same fix as getToday)
 export function getWeekDates() {
   const dates = [];
   const today = new Date();
@@ -128,7 +135,7 @@ export function getWeekDates() {
   for (let i = 0; i < 7; i++) {
     const date = new Date(startOfWeek);
     date.setDate(startOfWeek.getDate() + i);
-    dates.push(date.toISOString().split('T')[0]);
+    dates.push(toLocalDateString(date));
   }
   
   return dates;
