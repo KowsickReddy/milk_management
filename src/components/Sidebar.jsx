@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   LayoutDashboard, Users, Truck, Receipt, BarChart3, LogOut, X, Milk,
   MessageSquare, Shield, Fingerprint, CalendarDays, Wallet, Calculator,
-  ChevronLeft, Search, Info, Camera, StickyNote
+  ChevronLeft, Search, Info, Camera, StickyNote, Banknote
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -15,6 +15,7 @@ const adminNavItems = [
   { id: 'expenses',    label: 'Expenses',         icon: Wallet },
   { id: 'farm-mgmt',   label: 'Farm Management', icon: Milk },
   { id: 'billing',     label: 'Billing',         icon: Receipt },
+  { id: 'payments',    label: 'Payments',        icon: Banknote },
   { id: 'access-mgmt', label: 'Portal Access',   icon: Fingerprint },
   { id: 'access-logs', label: 'Access Logs',     icon: Shield },
   { id: 'reports',       label: 'Reports',          icon: BarChart3 },

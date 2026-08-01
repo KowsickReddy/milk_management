@@ -392,6 +392,90 @@ describe('Bills', () => {
     const r = await request(app).delete('/api/bills/1').set(auth(t));
     expect(r.status).toBe(200);
   });
+  it('POST /api/bills/delete-bulk', async () => {
+    // deleteWithRefund flow: BEGIN, SELECT credit, DELETE, COMMIT
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgNone());       // SELECT credit (none)
+    mockQuery.mockResolvedValueOnce(pgAffected(2));  // DELETE
+    mockQuery.mockResolvedValueOnce(pgAffected(1));  // COMMIT
+    const r = await request(app).post('/api/bills/delete-bulk').set(auth(t))
+      .send({ ids: [1, 2] });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.deleted).toBe(2);
+  });
+  it('POST /api/bills/delete-bulk — empty ids → 400', async () => {
+    const r = await request(app).post('/api/bills/delete-bulk').set(auth(t))
+      .send({ ids: [] });
+    expect(r.status).toBe(400);
+  });
+  it('POST /api/bills/delete-bulk — missing ids → 400', async () => {
+    const r = await request(app).post('/api/bills/delete-bulk').set(auth(t))
+      .send({});
+    expect(r.status).toBe(400);
+  });
+  it('POST /api/bills/delete-all', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgNone());       // SELECT credit (none)
+    mockQuery.mockResolvedValueOnce(pgAffected(5));  // DELETE all
+    mockQuery.mockResolvedValueOnce(pgAffected(1));  // COMMIT
+    const r = await request(app).post('/api/bills/delete-all').set(auth(t));
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.deleted).toBe(5);
+  });
+  it('POST /api/bills/delete-filtered — by month/year', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgNone());       // SELECT credit (none)
+    mockQuery.mockResolvedValueOnce(pgAffected(3));  // DELETE
+    mockQuery.mockResolvedValueOnce(pgAffected(1));  // COMMIT
+    const r = await request(app).post('/api/bills/delete-filtered').set(auth(t))
+      .send({ month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.success).toBe(true);
+    expect(r.body.deleted).toBe(3);
+    // The DELETE query must include the month/year filters
+    const delCalls = mockQuery.mock.calls.filter(c =>
+      String(c[0]).toUpperCase().startsWith('DELETE FROM BILLS'));
+    expect(delCalls.length).toBe(1);
+    expect(String(delCalls[0][0])).toContain('bill_month');
+    expect(String(delCalls[0][0])).toContain('bill_year');
+  });
+  it('POST /api/bills/delete-filtered — by paid status', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgNone());       // SELECT credit (none)
+    mockQuery.mockResolvedValueOnce(pgAffected(2));  // DELETE
+    mockQuery.mockResolvedValueOnce(pgAffected(1));  // COMMIT
+    const r = await request(app).post('/api/bills/delete-filtered').set(auth(t))
+      .send({ paid: false });
+    expect(r.status).toBe(200);
+    expect(r.body.deleted).toBe(2);
+  });
+  it('POST /api/bills/delete-bulk — refunds wallet credit to customers', async () => {
+    // Regression: deleting a bill that had wallet credit applied (gross 1500,
+    // final 500 → credit_used 1000) must refund ₹1000 to the customer's wallet
+    // so the money is not silently lost (and regeneration won't double-deduct).
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ customer_id: 1, credit_used: 1000 })); // SELECT credit
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE customers credit_balance +1000
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // DELETE
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    const r = await request(app).post('/api/bills/delete-bulk').set(auth(t))
+      .send({ ids: [1] });
+    expect(r.status).toBe(200);
+    expect(r.body.refunded).toBe(1);
+    expect(r.body.refund_amount).toBe(1000);
+    // The wallet credit-add must have run exactly once
+    const creditAdds = mockQuery.mock.calls.filter(c =>
+      String(c[0]).toUpperCase().includes('CREDIT_BALANCE = CREDIT_BALANCE +'));
+    expect(creditAdds.length).toBe(1);
+  });
+  it('POST /api/bills/delete-bulk — worker forbidden', async () => {
+    const wt = token({ role: 'worker' });
+    const r = await request(app).post('/api/bills/delete-bulk').set(auth(wt))
+      .send({ ids: [1] });
+    expect(r.status).toBe(403);
+  });
   it('GET /api/bills/unpaid-with-credit', async () => {
     const r = await request(app).get('/api/bills/unpaid-with-credit').set(auth(t));
     expect(r.status).toBe(200);
@@ -410,6 +494,19 @@ describe('Payments', () => {
   it('GET /api/payments', async () => {
     const r = await request(app).get('/api/payments').set(auth(t));
     expect(r.status).toBe(200);
+  });
+  it('GET /api/payments — with date & method filters', async () => {
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, customer_id: 1, bill_id: 1, amount_paid: 500,
+      payment_method: 'cash', payment_date: '2024-01-15T00:00:00.000Z', customer_name: 'Test' }));
+    const r = await request(app).get('/api/payments?startDate=2024-01-01&endDate=2024-01-31&method=cash').set(auth(t));
+    expect(r.status).toBe(200);
+    expect(r.body[0].amount_paid).toBe(500);
+    // The query must include the date-range + method filters
+    const calls = mockQuery.mock.calls.filter(c => String(c[0]).toUpperCase().includes('FROM PAYMENTS'));
+    expect(calls.length).toBe(1);
+    expect(String(calls[0][0])).toContain('payment_date');
+    expect(String(calls[0][0])).toContain('payment_method');
+    expect(String(calls[0][0])).toContain('customer_name');
   });
   it('POST /api/payments — partial', async () => {
     // 1=SELECTbill FOR UPDATE, 2=INSERTpayment, 3=UPDATEbill, 4=SELECTcustomercredit

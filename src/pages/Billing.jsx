@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Receipt, Calendar, Check, X, RefreshCw, ChevronDown, ChevronUp,
   Wallet, CreditCard, Banknote, TrendingUp, Clock, CheckCircle2,
-  Share2, AlertCircle
+  Share2, AlertCircle, Trash2, Filter
 } from 'lucide-react';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
@@ -103,12 +103,13 @@ function PaymentLedger({ billId }) {
 }
 
 // ── Bill Card ────────────────────────────────────────────────────────────
-function BillCard({ bill, onPay, customers }) {
+function BillCard({ bill, onPay, customers, onDelete }) {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [customerGave, setCustomerGave] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [showPayment, setShowPayment] = useState(false);
   const [showLedger, setShowLedger] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // grossAmount = original bill before wallet deduction
   const grossAmount  = Number(bill.bill_amount || bill.gross_amount || bill.total_amount || 0);
@@ -247,6 +248,15 @@ function BillCard({ bill, onPay, customers }) {
           >
             <Share2 className="w-4 h-4" />
           </button>
+          {onDelete && (
+            <button 
+              onClick={() => setShowDeleteConfirm(true)}
+              className="p-2 rounded-xl bg-rose-50 text-rose-500 hover:bg-rose-100 transition-all mr-1"
+              title="Delete bill"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
           {bill.paid
             ? <span className="badge badge-success flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Paid</span>
             : <span className="badge badge-warning flex items-center gap-1"><Clock className="w-3 h-3" /> Unpaid</span>
@@ -299,6 +309,25 @@ function BillCard({ bill, onPay, customers }) {
         <span className="badge badge-neutral">{Number(bill.total_quantity || 0).toFixed(2)}L total</span>
       </div>
 
+      {/* Rate × liters clarity breakdown */}
+      {(() => {
+        const cust = customers?.find(c => c.id === bill.customer_id);
+        const rate = Number(cust?.milk_rate_per_liter || 0);
+        const totalQty = Number(bill.total_quantity || 0);
+        const gross = Number(bill.bill_amount || bill.gross_amount || bill.total_amount || 0);
+        if (!rate && !gross) return null;
+        return (
+          <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+            <span className="text-gray-500">
+              <span className="font-semibold text-gray-700">{totalQty.toFixed(2)}L</span>
+              {rate > 0 && <> × ₹{rate.toFixed(2)}/L</>}
+              {rate > 0 && gross > 0 && <span className="text-gray-400"> = </span>}
+            </span>
+            <span className="font-bold text-gray-800">{formatCurrency(gross)}</span>
+          </div>
+        );
+      })()}
+
       {/* Ledger toggle */}
       <button
         onClick={() => setShowLedger(!showLedger)}
@@ -309,6 +338,18 @@ function BillCard({ bill, onPay, customers }) {
       </button>
 
       {showLedger && <PaymentLedger billId={bill.id} />}
+
+      {/* Delete confirm modal */}
+      <ConfirmModal
+        isOpen={showDeleteConfirm}
+        onClose={() => setShowDeleteConfirm(false)}
+        onConfirm={() => { setShowDeleteConfirm(false); onDelete && onDelete(bill.id); }}
+        title="Delete Bill?"
+        message={`Delete the ${getMonthName(bill.bill_month)} ${bill.bill_year} bill for ${bill.customer_name}? This cannot be undone. Payment history will be kept but unlinked from the bill.`}
+        confirmText="Yes, Delete"
+        cancelText="Cancel"
+        variant="danger"
+      />
 
       {/* Payment actions */}
       {walletPaid ? (
@@ -431,9 +472,13 @@ export default function Billing() {
   const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm]       = useState('');
   const [filterStatus, setFilterStatus]   = useState('unpaid');
+  const [filterMonth, setFilterMonth]     = useState('');
+  const [filterYear, setFilterYear]       = useState('');
   const [generatedBill, setGeneratedBill] = useState(null);
   const [isGeneratingBatch, setIsGeneratingBatch] = useState(false);
   const [showBatchConfirm, setShowBatchConfirm] = useState(false);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [showDeleteFilteredConfirm, setShowDeleteFilteredConfirm] = useState(false);
   const [billForm, setBillForm] = useState({
     customer_id: '',
     month: new Date().getMonth() + 1,
@@ -499,6 +544,29 @@ export default function Billing() {
     onError: (err) => toast.error(err.message || 'Failed to generate bill'),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: ({ mode, filters }) => {
+      if (mode === 'single')    return api.bills.delete(filters.id);
+      if (mode === 'bulk')      return api.bills.deleteBulk(filters.ids);
+      if (mode === 'all')       return api.bills.deleteAll();
+      if (mode === 'filtered')  return api.bills.deleteFiltered(filters);
+      return api.bills.deleteAll();
+    },
+    onSuccess: (res, variables) => {
+      queryClient.invalidateQueries({ queryKey: ['bills'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      const count = Number(res?.deleted || 0);
+      if (variables.mode === 'all') {
+        toast.success(count > 0 ? `🗑️ Deleted all ${count} bill(s)` : 'No bills to delete');
+      } else if (variables.mode === 'filtered') {
+        toast.success(count > 0 ? `🗑️ Deleted ${count} filtered bill(s)` : 'No bills matched the filters');
+      } else {
+        toast.success('🗑️ Bill deleted successfully');
+      }
+    },
+    onError: (err) => toast.error(err.message || 'Failed to delete bill(s)'),
+  });
+
   const handlePay = (billId, customerId, amount, method = 'cash') => {
     const bill = bills.find(b => b.id === billId);
     const currentBalance = Number(bill?.balance || 0);
@@ -552,8 +620,20 @@ export default function Billing() {
     if (searchTerm) result = result.filter(b => b.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()));
     if (filterStatus === 'paid')   result = result.filter(b => b.paid);
     if (filterStatus === 'unpaid') result = result.filter(b => !b.paid);
+    if (filterMonth) result = result.filter(b => Number(b.bill_month) === Number(filterMonth));
+    if (filterYear)  result = result.filter(b => Number(b.bill_year) === Number(filterYear));
     return result;
-  }, [bills, searchTerm, filterStatus]);
+  }, [bills, searchTerm, filterStatus, filterMonth, filterYear]);
+
+  // Years available in the dataset (for the filter dropdown)
+  const availableYears = useMemo(() => {
+    const years = new Set(bills.map(b => Number(b.bill_year)).filter(Boolean));
+    return [...years].sort((a, b) => b - a);
+  }, [bills]);
+
+  // Guard: 'Delete Filtered' must never fire with NO active filters — with an
+  // empty payload the backend would interpret it as delete-all (WHERE 1=1).
+  const hasActiveFilters = filterStatus !== 'all' || !!filterMonth || !!filterYear;
 
   // Summary stats
   const stats = useMemo(() => ({
@@ -685,9 +765,59 @@ export default function Billing() {
               { value: 'paid',   label: '✅ Paid Only' },
               { value: 'unpaid', label: '⏳ Unpaid Only' },
             ]}
-            className="w-full sm:w-48"
+            className="w-full sm:w-40"
+          />
+          <Select
+            value={String(filterMonth)}
+            onChange={(e) => setFilterMonth(e.target.value)}
+            options={[
+              { value: '', label: '🗓️ All Months' },
+              ...Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: getMonthName(i + 1) })),
+            ]}
+            className="w-full sm:w-36"
+          />
+          <Select
+            value={String(filterYear)}
+            onChange={(e) => setFilterYear(e.target.value)}
+            options={[
+              { value: '', label: '📅 All Years' },
+              ...availableYears.map(y => ({ value: y, label: String(y) })),
+            ]}
+            className="w-full sm:w-32"
           />
         </div>
+
+        {/* Bulk delete actions */}
+        {filteredBills.length > 0 && (
+          <div className="flex items-center justify-between flex-wrap gap-2 px-4 py-3 rounded-2xl bg-slate-50 border border-slate-100">
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <Filter className="w-4 h-4 text-slate-400" />
+              <span>
+                <span className="font-bold text-slate-700">{filteredBills.length}</span> bill(s) match current filters
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-rose-200 text-rose-600 hover:bg-rose-50 text-xs"
+                onClick={() => hasActiveFilters ? setShowDeleteFilteredConfirm(true) : toast.error('Select at least one filter (status, month or year) before deleting filtered bills')}
+                disabled={deleteMutation.isPending}
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete Filtered
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                className="text-xs"
+                onClick={() => setShowDeleteAllConfirm(true)}
+                disabled={deleteMutation.isPending}
+              >
+                <Trash2 className="w-3.5 h-3.5" /> Delete All Bills
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Bill cards */}
         {filteredBills.length === 0 ? (
@@ -699,7 +829,13 @@ export default function Billing() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredBills.map((bill) => (
-              <BillCard key={bill.id} bill={bill} onPay={handlePay} customers={customers} />
+              <BillCard
+                key={bill.id}
+                bill={bill}
+                onPay={handlePay}
+                customers={customers}
+                onDelete={(id) => deleteMutation.mutate({ mode: 'single', filters: { id } })}
+              />
             ))}
           </div>
         )}
@@ -714,6 +850,39 @@ export default function Billing() {
         confirmText="Yes, Generate All"
         cancelText="Cancel"
         variant="primary"
+      />
+
+      <ConfirmModal
+        isOpen={showDeleteAllConfirm}
+        onClose={() => setShowDeleteAllConfirm(false)}
+        onConfirm={() => { setShowDeleteAllConfirm(false); deleteMutation.mutate({ mode: 'all' }); }}
+        title="Delete ALL Bills?"
+        message={`This will permanently delete ALL ${bills.length} bill(s) in the system. Payment history will be kept but unlinked. This cannot be undone!`}
+        confirmText="Yes, Delete Everything"
+        cancelText="Cancel"
+        variant="danger"
+      />
+
+      <ConfirmModal
+        isOpen={showDeleteFilteredConfirm}
+        onClose={() => setShowDeleteFilteredConfirm(false)}
+        onConfirm={() => {
+          setShowDeleteFilteredConfirm(false);
+          deleteMutation.mutate({
+            mode: 'filtered',
+            filters: {
+              ...(filterMonth ? { month: Number(filterMonth) } : {}),
+              ...(filterYear ? { year: Number(filterYear) } : {}),
+              ...(filterStatus === 'paid' ? { paid: true } : {}),
+              ...(filterStatus === 'unpaid' ? { paid: false } : {}),
+            },
+          });
+        }}
+        title="Delete Filtered Bills?"
+        message={`This will permanently delete the ${filteredBills.length} bill(s) that match the current filters. Payment history will be kept but unlinked. This cannot be undone!`}
+        confirmText="Yes, Delete Filtered"
+        cancelText="Cancel"
+        variant="danger"
       />
     </div>
   );

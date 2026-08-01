@@ -4,14 +4,41 @@
 const { getPool } = require('../config/database');
 
 const PaymentRepository = {
-  async findAll({ customerId } = {}) {
-    let query = 'SELECT * FROM payments';
+  /**
+   * List payments with customer + bill context for the ledger page.
+   * Filters (all optional): customerId, startDate, endDate, method.
+   */
+  async findAll({ customerId, startDate, endDate, method } = {}) {
+    let query = `
+      SELECT p.*,
+        c.name        AS customer_name,
+        c.phone       AS customer_phone,
+        b.bill_month  AS bill_month,
+        b.bill_year   AS bill_year
+      FROM payments p
+      LEFT JOIN customers c ON p.customer_id = c.id
+      LEFT JOIN bills b     ON p.bill_id = b.id
+      WHERE 1=1`;
     const params = [];
+
     if (customerId) {
       params.push(customerId);
-      query += ' WHERE customer_id = $1';
+      query += ` AND p.customer_id = $${params.length}`;
     }
-    query += ' ORDER BY payment_date DESC';
+    if (startDate) {
+      params.push(startDate);
+      query += ` AND p.payment_date >= $${params.length}::date`;
+    }
+    if (endDate) {
+      params.push(endDate);
+      query += ` AND p.payment_date < ($${params.length}::date + INTERVAL '1 day')`;
+    }
+    if (method) {
+      params.push(method);
+      query += ` AND p.payment_method = $${params.length}`;
+    }
+
+    query += ' ORDER BY p.payment_date DESC, p.id DESC';
     const result = await getPool().query(query, params);
     return result.rows;
   },

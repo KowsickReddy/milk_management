@@ -146,6 +146,9 @@ export const billsAPI = {
   generateBatch: (data)    => apiCall('/api/bills/generate-batch', { method: 'POST', body: data }),
   update:    (id, data)    => apiCall(`/api/bills/${id}`, { method: 'PUT', body: data }),
   delete:    (id)          => apiCall(`/api/bills/${id}`, { method: 'DELETE' }),
+  deleteBulk: (ids)        => apiCall('/api/bills/delete-bulk', { method: 'POST', body: { ids } }),
+  deleteAll:  ()           => apiCall('/api/bills/delete-all', { method: 'POST' }),
+  deleteFiltered: (filters = {}) => apiCall('/api/bills/delete-filtered', { method: 'POST', body: filters }),
 };
 
 // ── Payments ───────────────────────────────────────────────────────────────

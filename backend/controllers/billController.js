@@ -53,6 +53,23 @@ const billController = {
     const result = await BillService.delete(req.params.id);
     res.json(result);
   }),
+
+  deleteMany: asyncHandler(async (req, res) => {
+    const { ids } = req.body || {};
+    const result = await BillService.deleteMany(ids);
+    res.json(result);
+  }),
+
+  deleteAll: asyncHandler(async (req, res) => {
+    const result = await BillService.deleteAll();
+    res.json(result);
+  }),
+
+  deleteFiltered: asyncHandler(async (req, res) => {
+    const { customerId, paid, month, year } = req.body || {};
+    const result = await BillService.deleteByFilters({ customerId, paid, billMonth: month, billYear: year });
+    res.json(result);
+  }),
 };
 
 module.exports = billController;

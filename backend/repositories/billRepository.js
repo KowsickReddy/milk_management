@@ -133,9 +133,102 @@ const BillRepository = {
     return result.rowCount > 0;
   },
 
-  async delete(id) {
-    const result = await getPool().query('DELETE FROM bills WHERE id = $1', [id]);
+  async delete(id, connection) {
+    const conn = connection || getPool();
+    const result = await conn.query('DELETE FROM bills WHERE id = $1', [id]);
     return result.rowCount > 0;
+  },
+
+  /**
+   * Delete multiple bills by their IDs.
+   * Returns the number of rows deleted.
+   */
+  async deleteMany(ids, connection) {
+    if (!Array.isArray(ids) || ids.length === 0) return 0;
+    const conn = connection || getPool();
+    const result = await conn.query(
+      'DELETE FROM bills WHERE id = ANY($1::int[])',
+      [ids]
+    );
+    return result.rowCount || 0;
+  },
+
+  /**
+   * Delete every bill in the system (admin maintenance).
+   * Returns the number of rows deleted.
+   */
+  async deleteAll(connection) {
+    const conn = connection || getPool();
+    const result = await conn.query('DELETE FROM bills');
+    return result.rowCount || 0;
+  },
+
+  /**
+   * Delete bills matching a set of filters.
+   * Filters (all optional): customerId, paid, billMonth, billYear.
+   * Returns the number of rows deleted.
+   */
+  async deleteByFilters({ customerId, paid, billMonth, billYear } = {}, connection) {
+    const conn = connection || getPool();
+    let query = 'DELETE FROM bills WHERE 1=1';
+    const params = [];
+
+    if (customerId) {
+      params.push(customerId);
+      query += ` AND customer_id = $${params.length}`;
+    }
+    if (paid !== undefined) {
+      params.push(paid);
+      query += ` AND paid = $${params.length}`;
+    }
+    if (billMonth) {
+      params.push(billMonth);
+      query += ` AND bill_month = $${params.length}`;
+    }
+    if (billYear) {
+      params.push(billYear);
+      query += ` AND bill_year = $${params.length}`;
+    }
+
+    const result = await conn.query(query, params);
+    return result.rowCount || 0;
+  },
+
+  /**
+   * Compute the wallet credit applied (gross − final) for bills that will be
+   * deleted, grouped by customer, so deletion can refund it to the wallet.
+   * Accepts the same optional filters as deleteByFilters plus an ids array.
+   */
+  async findCreditForDeletion({ ids, customerId, paid, billMonth, billYear } = {}, connection) {
+    const conn = connection || getPool();
+    let query = `SELECT customer_id,
+        GREATEST(0, COALESCE(gross_amount, total_amount) - COALESCE(final_amount, total_amount)) AS credit_used
+       FROM bills WHERE 1=1`;
+    const params = [];
+
+    if (ids && ids.length) {
+      params.push(ids);
+      query += ` AND id = ANY($${params.length}::int[])`;
+    }
+    if (customerId) {
+      params.push(customerId);
+      query += ` AND customer_id = $${params.length}`;
+    }
+    if (paid !== undefined) {
+      params.push(paid);
+      query += ` AND paid = $${params.length}`;
+    }
+    if (billMonth) {
+      params.push(billMonth);
+      query += ` AND bill_month = $${params.length}`;
+    }
+    if (billYear) {
+      params.push(billYear);
+      query += ` AND bill_year = $${params.length}`;
+    }
+
+    const result = await conn.query(query, params);
+    return result.rows;
   },
 
   async getUnpaidWithCredit() {

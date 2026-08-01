@@ -8,8 +8,8 @@ const CustomerRepository = require('../repositories/customerRepository');
 const { withTransaction } = require('../config/database');
 
 const PaymentService = {
-  async getAll({ customerId } = {}) {
-    return await PaymentRepository.findAll({ customerId });
+  async getAll({ customerId, startDate, endDate, method } = {}) {
+    return await PaymentRepository.findAll({ customerId, startDate, endDate, method });
   },
 
   async getByBill(billId) {

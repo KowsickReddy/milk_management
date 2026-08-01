@@ -5,8 +5,8 @@ const asyncHandler = require('../middleware/asyncHandler');
 
 const paymentController = {
   getAll: asyncHandler(async (req, res) => {
-    const { customerId } = req.query;
-    const payments = await PaymentService.getAll({ customerId });
+    const { customerId, startDate, endDate, method } = req.query;
+    const payments = await PaymentService.getAll({ customerId, startDate, endDate, method });
     res.json(payments);
   }),
 

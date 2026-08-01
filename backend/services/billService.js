@@ -238,10 +238,103 @@ const BillService = {
     return await BillRepository.findById(id);
   },
 
+  /**
+   * Delete bill(s) and refund any wallet credit that was applied to them.
+   *
+   * When a bill was created, wallet credit (gross − final) was deducted from
+   * the customer's credit_balance. Deleting that bill without refunding the
+   * credit would silently lose the customer's wallet money — and worse, a
+   * regeneration after deletion would treat the bill as new and deduct credit
+   * AGAIN (double loss). This runs in a transaction: refund first, then delete.
+   *
+   * @param {{ ids?: number[], customerId?: number, paid?: boolean, billMonth?: number, billYear?: number }} criteria
+   * @returns {{ success: boolean, deleted: number, refunded: number, refund_amount: number }}
+   */
+  async deleteWithRefund(criteria = {}) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1. Which bills are we deleting? Compute the wallet credit to refund.
+      const creditRows = await BillRepository.findCreditForDeletion(criteria, client);
+
+      // 2. Refund applied credit per customer (credit_used = gross − final).
+      const refundByCustomer = new Map();
+      for (const row of creditRows) {
+        const credit = Number(row.credit_used || 0);
+        const customerId = row.customer_id;
+        if (!customerId || credit <= 0) continue;
+        refundByCustomer.set(customerId, (refundByCustomer.get(customerId) || 0) + credit);
+      }
+      let refundAmount = 0;
+      for (const [customerId, amount] of refundByCustomer) {
+        const rounded = Number(amount.toFixed(2));
+        refundAmount += rounded;
+        await client.query(
+          'UPDATE customers SET credit_balance = credit_balance + $1 WHERE id = $2',
+          [rounded, customerId]
+        );
+      }
+
+      // 3. Delete the bills (all in the same transaction).
+      let deleted = 0;
+      if (criteria.ids && criteria.ids.length) {
+        deleted = await BillRepository.deleteMany(criteria.ids, client);
+      } else if (criteria.customerId || criteria.paid !== undefined || criteria.billMonth || criteria.billYear) {
+        deleted = await BillRepository.deleteByFilters(criteria, client);
+      } else {
+        deleted = await BillRepository.deleteAll(client);
+      }
+
+      await client.query('COMMIT');
+      return { success: true, deleted, refunded: refundByCustomer.size, refund_amount: Number(refundAmount.toFixed(2)) };
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* already rolled back */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  },
+
   async delete(id) {
-    const deleted = await BillRepository.delete(id);
-    if (!deleted) throw new AppError('Bill not found', 404, 'NOT_FOUND');
-    return { success: true };
+    const numericId = Number(id);
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      throw new AppError('Invalid bill ID', 400, 'VALIDATION_ERROR');
+    }
+    const result = await this.deleteWithRefund({ ids: [numericId] });
+    if (!result.deleted) throw new AppError('Bill not found', 404, 'NOT_FOUND');
+    return { success: true, deleted: result.deleted, refunded: result.refunded, refund_amount: result.refund_amount };
+  },
+
+  async deleteMany(ids) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new AppError('ids array is required', 400, 'VALIDATION_ERROR');
+    }
+    const clean = ids.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if (clean.length === 0) {
+      throw new AppError('ids must be valid bill IDs', 400, 'VALIDATION_ERROR');
+    }
+    const result = await this.deleteWithRefund({ ids: clean });
+    return { success: true, deleted: result.deleted, refunded: result.refunded, refund_amount: result.refund_amount };
+  },
+
+  async deleteAll() {
+    const result = await this.deleteWithRefund({});
+    return { success: true, deleted: result.deleted, refunded: result.refunded, refund_amount: result.refund_amount };
+  },
+
+  async deleteByFilters(filters = {}) {
+    const { customerId, paid, billMonth, billYear } = filters;
+    // Normalize & validate the optional filters
+    const clean = {
+      customerId: customerId ? Number(customerId) : undefined,
+      paid: paid === 'true' || paid === true ? true : paid === 'false' || paid === false ? false : undefined,
+      billMonth: billMonth ? Number(billMonth) : undefined,
+      billYear: billYear ? Number(billYear) : undefined,
+    };
+    const result = await this.deleteWithRefund(clean);
+    return { success: true, deleted: result.deleted, refunded: result.refunded, refund_amount: result.refund_amount };
   },
 };
 

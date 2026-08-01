@@ -21,6 +21,7 @@ const Dashboard  = lazy(() => import('./pages/Dashboard'));
 const Customers  = lazy(() => import('./pages/Customers'));
 const Deliveries = lazy(() => import('./pages/Deliveries'));
 const Billing    = lazy(() => import('./pages/Billing'));
+const Payments   = lazy(() => import('./pages/Payments'));
 const Reports    = lazy(() => import('./pages/Reports'));
 const AccessLogs = lazy(() => import('./pages/AccessLogs'));
 const FarmManagement = lazy(() => import('./pages/FarmManagement'));
@@ -321,7 +322,7 @@ function AppContent() {
   // Breadcrumb label - defined early for hooks consistency (used by useEffect for page title)
   const pageLabels = {
     dashboard: 'Dashboard', customers: 'Customers', deliveries: 'Deliveries',
-    billing: 'Billing', leaves: 'Manage Leaves', expenses: 'Expenses',
+    billing: 'Billing', payments: 'Payments', leaves: 'Manage Leaves', expenses: 'Expenses',
     'farm-mgmt': 'Farm Management', 'access-mgmt': 'Portal Access',
     reports: 'Reports', 'access-logs': 'Access Logs', calculator: 'Calculator',
     about: 'About', notes: 'Notes', 'admin-calendar': 'Delivery Calendar',
@@ -383,6 +384,7 @@ function AppContent() {
         case 'customers':  return <Customers  {...props} />;
         case 'deliveries': return <Deliveries {...props} />;
         case 'billing':    return <Billing    {...props} />;
+        case 'payments':   return <Payments   {...props} />;
         case 'reports':    return <Reports    {...props} />;
         case 'access-logs':return <AccessLogs {...props} />;
         case 'expenses':   return <Expenses   {...props} />;
