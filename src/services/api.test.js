@@ -102,12 +102,17 @@ describe('apiCall', () => {
   });
 
   it('handles 401 by clearing session and redirecting', async () => {
+    jest.useFakeTimers();
     localStorageMock.getItem.mockReturnValue('valid-token');
-    mockFetch.mockResolvedValueOnce(mockResponse(401, { error: 'Unauthorized' }));
+    // 401 with no error body → apiCall falls back to the 'Session expired' message
+    mockFetch.mockResolvedValueOnce(mockResponse(401, {}));
     await expect(apiCall('/test')).rejects.toThrow('Session expired');
     expect(localStorageMock.removeItem).toHaveBeenCalledWith('token');
     expect(localStorageMock.removeItem).toHaveBeenCalledWith('user');
+    // Redirect happens on a 100ms timeout (anti-toast-flood guard)
+    jest.advanceTimersByTime(200);
     expect(window.location.href).toBe('/');
+    jest.useRealTimers();
   });
 
   it('throws on non-ok response without token', async () => {
@@ -123,7 +128,7 @@ describe('apiCall', () => {
 
   it('handles network errors', async () => {
     mockFetch.mockRejectedValueOnce(new Error('Network failure'));
-    await expect(apiCall('/test')).rejects.toThrow('Network failure');
+    await expect(apiCall('/test')).rejects.toThrow('Network error — server unreachable');
   });
 });
 
@@ -439,7 +444,8 @@ describe('default api export', () => {
     expect(api.customers).toBe(customersAPI);
     expect(api.users).toBe(usersAPI);
     expect(api.admin).toBe(adminAPI);
-    expect(api.portal).toBe(portalAPI);
+    expect(api.portal.getDashboard).toBe(portalAPI.getDashboard);
+    expect(typeof api.portal.getCalendar).toBe('function');
     expect(api.cattle).toBe(cattleAPI);
     expect(api.feed).toBe(feedAPI);
     expect(api.deliveries).toBe(deliveriesAPI);

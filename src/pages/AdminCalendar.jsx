@@ -8,7 +8,7 @@ import {
 import api from '../services/api';
 import { Card, Button, Select } from '../ui';
 import { toast } from 'react-hot-toast';
-import { cn, getMonthName } from '../lib/utils';
+import { cn, getMonthName, toLocalDateString } from '../lib/utils';
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({
   value: i + 1,
@@ -143,7 +143,7 @@ export default function AdminCalendar() {
     }
     (deliveries || []).forEach((d) => {
       const dStr = d.date
-        ? typeof d.date === 'string' ? d.date.split('T')[0] : new Date(d.date).toISOString().split('T')[0]
+        ? typeof d.date === 'string' ? d.date.split('T')[0] : toLocalDateString(new Date(d.date))
         : null;
       if (!dStr || !map[dStr]) return;
       const qty = parseFloat(d.delivered_quantity || 0) + parseFloat(d.extra_milk || 0);

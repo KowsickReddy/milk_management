@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
-import { cn, formatCurrency, getMonthName, getInitials } from '../lib/utils';
+import { cn, formatCurrency, getMonthName, getInitials, getToday } from '../lib/utils';
 import { Card, Button, Input, Select, SearchInput, ConfirmModal } from '../ui';
 
 
@@ -112,10 +112,13 @@ function BillCard({ bill, onPay, customers }) {
 
   // grossAmount = original bill before wallet deduction
   const grossAmount  = Number(bill.bill_amount || bill.gross_amount || bill.total_amount || 0);
-  // totalAmount = what customer actually owes after credit applied
-  const totalAmount  = Number(bill.amount_paid || 0) + Number(bill.balance || 0) || Number(bill.total_amount || 0);
   const paidAmount   = Number(bill.amount_paid || 0);
   const balance      = Number(bill.balance || 0);
+  // totalAmount = what customer actually owes after credit applied.
+  // For a bill settled via wallet credit (paid, ₹0 cash, ₹0 balance) the owed
+  // amount must be 0 so the 'Fully Paid via Wallet Credit' state shows — never
+  // fall back to the gross amount for an already-paid bill.
+  const totalAmount  = (paidAmount + balance) || (bill.paid ? 0 : Number(bill.total_amount || 0));
   const creditUsed   = Number(bill.credit_used || 0);
   // walletPaid: full bill covered by credit, no cash payment needed
   const walletPaid   = grossAmount > 0 && totalAmount === 0;
@@ -453,7 +456,7 @@ export default function Billing() {
   });
 
   const onLeaveCustomerIds = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getToday();
     const ids = new Set();
     allLeaves.forEach(l => {
       if (l.start_date <= today && (!l.end_date || l.end_date >= today)) {
@@ -479,9 +482,14 @@ export default function Billing() {
   const generateBillMutation = useMutation({
     mutationFn: (data) => api.bills.generate(data),
     onSuccess: (bill, variables, context) => {
+      // Backend returns 200 for existing bills, 201 for new — both are success
+      if (bill?.skipped) {
+        setGeneratedBill(null);
+        toast(bill.message || 'No bill generated (no milk delivered / no rate)', { icon: '⚠️' });
+        return;
+      }
       setGeneratedBill(bill);
       queryClient.invalidateQueries({ queryKey: ['bills'] });
-      // Backend returns 200 for existing bills, 201 for new — both are success
       if (bill?.already_exists) {
         toast('⚠️ Bill already exists for this month', { icon: '📋' });
       } else {
@@ -525,7 +533,12 @@ export default function Billing() {
         month: Number(billForm.month),
         year: Number(billForm.year),
       });
-      toast.success(`Successfully processed ${res.processed} bills!`);
+      const skippedCount = Number(res.skipped || 0);
+      if (skippedCount > 0) {
+        toast.success(`✅ ${res.processed} bill(s) generated, ${skippedCount} skipped (no milk delivered / no rate)`);
+      } else {
+        toast.success(`✅ Successfully generated ${res.processed} bills!`);
+      }
       queryClient.invalidateQueries({ queryKey: ['bills'] });
     } catch (err) {
       toast.error(err.message);

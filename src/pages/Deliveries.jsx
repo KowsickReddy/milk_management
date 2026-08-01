@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../services/api';
-import { cn, getToday, getInitials } from '../lib/utils';
+import { cn, getToday, getInitials, addDays } from '../lib/utils';
 import { Card, Button, ConfirmModal, Input, Select } from '../ui';
 import { motion } from 'framer-motion';
 
@@ -282,7 +282,7 @@ export default function Deliveries() {
   });
 
   const onLeaveCustomerIds = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getToday();
     const ids = new Set();
     allLeaves.forEach(l => {
       if (l.start_date <= today && (!l.end_date || l.end_date >= today)) {
@@ -603,9 +603,7 @@ export default function Deliveries() {
   };
 
   const navigateDate = (days) => {
-    const date = new Date(selectedDate);
-    date.setDate(date.getDate() + days);
-    setSelectedDate(date.toISOString().split('T')[0]);
+    setSelectedDate(addDays(selectedDate, days));
   };
 
   if (custIsError || delIsError) {

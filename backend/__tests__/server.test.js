@@ -692,7 +692,7 @@ describe('Bill Generation', () => {
   it('POST /api/bills/generate', async () => {
     // generateBill query order (pg uses client.query('BEGIN')/'COMMIT'):
     // 1=BEGIN, 2=SELECTcustomer, 3=SELECTdeliverytotals, 4=SELECTdeliveryleave,
-    // 5=SELECTlongleave, 6=UPDATEcredit, 7=findByCustomerMonth(SELECT),
+    // 5=SELECTlongleave, 6=findByCustomerMonth(SELECT), 7=UPDATEcredit (new bill),
     // 8=INSERTbill, 9=COMMIT, 10=SELECTbillback
     mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
     mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 50,
@@ -700,8 +700,8 @@ describe('Bill Generation', () => {
     mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 5, extra_days: 3, delivery_days: 15 }));
     mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 2 }));
     mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
-    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
     mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill (findByCustomerMonth)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
     mockQuery.mockResolvedValueOnce(pgOne({ id: 5 })); // INSERT bill
     mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
     mockQuery.mockResolvedValueOnce(pgOne({ id: 5, customer_id: 1 })); // SELECT bill back
@@ -709,6 +709,120 @@ describe('Bill Generation', () => {
       .send({ customer_id: 1, month: 1, year: 2024 });
     expect(r.status).toBe(201);
     expect(r.body.already_exists).toBe(false);
+  });
+
+  it('POST /api/bills/generate — zero deliveries → skipped, no dummy bill', async () => {
+    // Regression: a customer with no deliveries must NOT get a ₹0 bill that
+    // was previously auto-marked as PAID without any user interaction.
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 50,
+      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 0, total_extra: 0, extra_days: 0, delivery_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // ROLLBACK
+    const r = await request(app).post('/api/bills/generate').set(auth(t))
+      .send({ customer_id: 1, month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.skipped).toBe(true);
+    // No INSERT into bills was issued
+    const inserts = mockQuery.mock.calls.filter(c => String(c[0]).toUpperCase().includes('INSERT INTO BILLS'));
+    expect(inserts.length).toBe(0);
+  });
+
+  it('POST /api/bills/generate — no milk rate → skipped, no dummy bill', async () => {
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 0,
+      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // ROLLBACK
+    const r = await request(app).post('/api/bills/generate').set(auth(t))
+      .send({ customer_id: 1, month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.skipped).toBe(true);
+    const inserts = mockQuery.mock.calls.filter(c => String(c[0]).toUpperCase().includes('INSERT INTO BILLS'));
+    expect(inserts.length).toBe(0);
+  });
+
+  it('POST /api/bills/generate — regeneration does NOT double-deduct credit', async () => {
+    // Regression: re-generating a bill for a month that already has a bill must
+    // reuse the applied credit — no second UPDATE customers credit_balance.
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 50,
+      credit_balance: 100, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    // Existing bill with ₹500 already applied via credit (gross 1500, final 1000)
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 7, amount_paid: 0, gross_amount: 1500,
+      final_amount: 1000, balance: 1000, paid: false }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE bill (upsert)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 7, customer_id: 1 })); // SELECT bill back
+    const r = await request(app).post('/api/bills/generate').set(auth(t))
+      .send({ customer_id: 1, month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.already_exists).toBe(true);
+    // No UPDATE customers credit_balance should have run (no double deduction)
+    const creditUpdates = mockQuery.mock.calls.filter(c =>
+      String(c[0]).toUpperCase().includes('UPDATE CUSTOMERS SET CREDIT_BALANCE'));
+    expect(creditUpdates.length).toBe(0);
+  });
+
+  it('POST /api/bills/generate — regeneration refunds cash overpayment to wallet', async () => {
+    // Regression: if a customer already paid ₹1200 cash but the regenerated
+    // bill is only ₹1000, the ₹200 overpayment must go back to their wallet
+    // (credit_balance) — not be silently lost.
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 50,
+      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    // Existing bill: ₹1200 already paid, ₹500 credit applied (gross 1000, final 500)
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 9, amount_paid: 1200, gross_amount: 1000,
+      final_amount: 500, balance: 0, paid: true }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE bill (upsert)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE customers credit_balance +200
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 9, customer_id: 1 })); // SELECT bill back
+    const r = await request(app).post('/api/bills/generate').set(auth(t))
+      .send({ customer_id: 1, month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.credit_refunded).toBe(200);
+    // The wallet credit-add must have run
+    const creditAdds = mockQuery.mock.calls.filter(c =>
+      String(c[0]).toUpperCase().includes('CREDIT_BALANCE = CREDIT_BALANCE +'));
+    expect(creditAdds.length).toBe(1);
+  });
+
+  it('POST /api/bills/generate — regeneration refunds credit overage to wallet', async () => {
+    // Regression: if ₹1000 credit was applied to the original bill (gross 1500,
+    // final 500) but the regenerated bill is only ₹500 (10L × 50), the ₹500
+    // surplus credit must go back to the customer's wallet.
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'Test', milk_rate_per_liter: 50,
+      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 10, total_extra: 0, extra_days: 0, delivery_days: 10 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    // Existing bill: ₹1000 credit applied (gross 1500, final 500), no cash paid
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 8, amount_paid: 0, gross_amount: 1500,
+      final_amount: 500, balance: 0, paid: true }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE customers credit_balance +500 (surplus)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE bill (upsert)
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 8, customer_id: 1 })); // SELECT bill back
+    const r = await request(app).post('/api/bills/generate').set(auth(t))
+      .send({ customer_id: 1, month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.already_exists).toBe(true);
+    // The wallet credit-add (surplus refund) must have run exactly once
+    const creditAdds = mockQuery.mock.calls.filter(c =>
+      String(c[0]).toUpperCase().includes('CREDIT_BALANCE = CREDIT_BALANCE +'));
+    expect(creditAdds.length).toBe(1);
   });
 
   it('POST /api/bills/generate — missing fields', async () => {
@@ -720,15 +834,15 @@ describe('Bill Generation', () => {
   it('POST /api/bills/generate-batch', async () => {
     mockQuery.mockResolvedValueOnce(pgRows([{ id: 1 }, { id: 2 }])); // customers
 
-    // Customer 1: BEGIN, customer, totals, dleave, lleave, updatecredit, existing, insert, COMMIT, selectback
+    // Customer 1: BEGIN, customer, totals, dleave, lleave, existing, updatecredit, insert, COMMIT, selectback
     mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
     mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'A', milk_rate_per_liter: 50,
       credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
     mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }));
     mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
     mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
-    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
     mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
     mockQuery.mockResolvedValueOnce(pgOne({ id: 10 }));
     mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
     mockQuery.mockResolvedValueOnce(pgOne({ id: 10, customer_id: 1 }));
@@ -740,8 +854,8 @@ describe('Bill Generation', () => {
     mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 15, total_extra: 0, extra_days: 0, delivery_days: 15 }));
     mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
     mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
-    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
     mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
     mockQuery.mockResolvedValueOnce(pgOne({ id: 11 }));
     mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
     mockQuery.mockResolvedValueOnce(pgOne({ id: 11, customer_id: 2 }));
@@ -750,5 +864,40 @@ describe('Bill Generation', () => {
       .send({ month: 1, year: 2024 });
     expect(r.status).toBe(200);
     expect(r.body.processed).toBe(2);
+  });
+
+  it('POST /api/bills/generate-batch — zero-delivery customers are skipped', async () => {
+    mockQuery.mockResolvedValueOnce(pgRows([{ id: 1 }, { id: 2 }])); // customers
+
+    // Customer 1: has deliveries → bill generated
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 1, name: 'A', milk_rate_per_liter: 50,
+      credit_balance: 0, daily_milk_quantity: 2, default_milk_quantity: 2 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 30, total_extra: 0, extra_days: 0, delivery_days: 15 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgNone()); // no existing bill
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // UPDATE credit
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 10 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // COMMIT
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 10, customer_id: 1 }));
+
+    // Customer 2: zero deliveries → skipped, no INSERT
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // BEGIN
+    mockQuery.mockResolvedValueOnce(pgOne({ id: 2, name: 'B', milk_rate_per_liter: 45,
+      credit_balance: 0, daily_milk_quantity: 1, default_milk_quantity: 1 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ total_delivered: 0, total_extra: 0, extra_days: 0, delivery_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgOne({ leave_days: 0 }));
+    mockQuery.mockResolvedValueOnce(pgAffected(1)); // ROLLBACK
+
+    const r = await request(app).post('/api/bills/generate-batch').set(auth(t))
+      .send({ month: 1, year: 2024 });
+    expect(r.status).toBe(200);
+    expect(r.body.processed).toBe(1);
+    expect(r.body.skipped).toBe(1);
+    const failed = r.body.details.filter(d => !d.success);
+    expect(failed.length).toBe(1);
+    expect(failed[0].skipped).toBe(true);
   });
 });

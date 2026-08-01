@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useRef } from 'react';
 import { customersAPI, deliveriesAPI, billsAPI, paymentsAPI, creditsAPI } from '../services/api';
+import { getToday, toLocalDateString } from '../lib/utils';
 import { toast } from 'react-hot-toast';
 
 // Initial state
@@ -491,8 +492,8 @@ export function AppProvider({ children }) {
         customer_name: sanitizeString(customer.name),
         bill_month: start.getMonth() + 1,
         bill_year: start.getFullYear(),
-        bill_start_date: start.toISOString().split('T')[0],
-        bill_end_date: end.toISOString().split('T')[0],
+        bill_start_date: toLocalDateString(start),
+        bill_end_date: toLocalDateString(end),
         total_quantity: totalQuantity,
         total_amount: parseFloat(totalAmount.toFixed(2)),
         paid: false,
@@ -631,7 +632,7 @@ export function AppProvider({ children }) {
   }, [state.apiAvailable]);
 
   // Computed values
-  const getTodayDeliveries = useCallback((date = new Date().toISOString().split('T')[0]) => {
+  const getTodayDeliveries = useCallback((date = getToday()) => {
     return state.deliveries.filter(d => d.date === date);
   }, [state.deliveries]);
 

@@ -8,7 +8,7 @@ const BillRepository = {
     let query = `
       SELECT b.*,
         b.final_amount AS final_amount,
-        GREATEST(0, COALESCE(b.gross_amount, b.total_amount) - b.final_amount) AS credit_used,
+        GREATEST(0, COALESCE(b.gross_amount, b.total_amount) - COALESCE(b.final_amount, b.total_amount)) AS credit_used,
         COALESCE(b.gross_amount, b.total_amount) AS bill_amount,
         c.phone AS customer_phone
       FROM bills b
@@ -33,7 +33,7 @@ const BillRepository = {
   async findById(id) {
     const result = await getPool().query(
       `SELECT b.*,
-        GREATEST(0, COALESCE(b.gross_amount, b.total_amount) - b.final_amount) AS credit_used,
+        GREATEST(0, COALESCE(b.gross_amount, b.total_amount) - COALESCE(b.final_amount, b.total_amount)) AS credit_used,
         COALESCE(b.gross_amount, b.total_amount) AS bill_amount,
         c.phone AS customer_phone
        FROM bills b
@@ -64,24 +64,41 @@ const BillRepository = {
   async upsert(
     customer_id, customer_name, billMonth, billYear, startDate, endDate,
     totalQuantity, billAmount, finalAmount, leaveDays, extraDays,
-    totalExtra, periods, connection
+    totalExtra, periods, connection, existing = null
   ) {
     const conn = connection || getPool();
-    const existing = await this.findByCustomerMonth(customer_id, billMonth, billYear);
+    // existing may be passed in from the service to avoid a duplicate query.
+    // NOTE: only re-query when the param is literally `undefined` (not passed).
+    // The service explicitly passes `null` for verified-new bills, which must
+    // NOT trigger another SELECT here.
+    if (existing === undefined) existing = await this.findByCustomerMonth(customer_id, billMonth, billYear);
 
     if (existing) {
       const prevAmountPaid = Number(existing.amount_paid || 0);
-      const newBalance = Number(Math.max(0, finalAmount - prevAmountPaid).toFixed(2));
+      let newAmountPaid = prevAmountPaid;
+      let creditRefunded = 0;
+
+      // If the corrected bill is smaller than what was already paid in cash,
+      // refund the difference to the customer's wallet instead of silently
+      // losing it (or worse, flipping the bill to paid).
+      if (prevAmountPaid > finalAmount) {
+        creditRefunded = Number((prevAmountPaid - finalAmount).toFixed(2));
+        newAmountPaid = finalAmount;
+      }
+
+      const newBalance = Number(Math.max(0, finalAmount - newAmountPaid).toFixed(2));
+      // Preserve settlement: a bill is only 'paid' when the remaining balance
+      // is actually zero. Regenerating must never auto-pay an unpaid bill.
       const newPaid = newBalance <= 0 ? true : false;
 
       await conn.query(
         `UPDATE bills SET
           total_quantity = $1, gross_amount = $2, final_amount = $3, leave_days = $4, extra_days = $5,
-          total_extra_milk = $6, total_amount = $7, balance = $8, paid = $9, periods = $10
-         WHERE id = $11`,
-        [totalQuantity, billAmount, finalAmount, leaveDays, extraDays, totalExtra, billAmount, newBalance, newPaid, periods, existing.id]
+          total_extra_milk = $6, total_amount = $7, amount_paid = $8, balance = $9, paid = $10, periods = $11
+         WHERE id = $12`,
+        [totalQuantity, billAmount, finalAmount, leaveDays, extraDays, totalExtra, billAmount, newAmountPaid, newBalance, newPaid, periods, existing.id]
       );
-      return { id: existing.id, already_exists: true };
+      return { id: existing.id, already_exists: true, credit_refunded: creditRefunded };
     }
 
     const result = await conn.query(
@@ -93,9 +110,9 @@ const BillRepository = {
        RETURNING id`,
       [customer_id, customer_name, billMonth, billYear, startDate, endDate,
         totalQuantity, billAmount, finalAmount, leaveDays, extraDays,
-        totalExtra, billAmount, finalAmount, finalAmount <= 0 ? true : false, periods]
+        totalExtra, billAmount, finalAmount, (finalAmount <= 0 && billAmount > 0), periods]
     );
-    return { id: result.rows[0].id, already_exists: false };
+    return { id: result.rows[0].id, already_exists: false, credit_refunded: 0 };
   },
 
   async update(id, data) {

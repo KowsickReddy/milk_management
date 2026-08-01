@@ -28,7 +28,9 @@ const billController = {
   generate: asyncHandler(async (req, res) => {
     const { customer_id, month, year } = req.body;
     const result = await BillService.generateBill(customer_id, month, year);
-    res.status(result.already_exists ? 200 : 201).json(result);
+    // Skipped bills (no milk delivered / no rate) are a normal outcome — 200.
+    const status = result.skipped ? 200 : (result.already_exists ? 200 : 201);
+    res.status(status).json(result);
   }),
 
   generateBatch: asyncHandler(async (req, res) => {

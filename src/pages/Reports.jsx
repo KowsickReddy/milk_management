@@ -10,7 +10,7 @@ import {
   Download
 } from 'lucide-react';
 import api from '../services/api';
-import { cn, formatCurrency, getMonthName, getInitials } from '../lib/utils';
+import { cn, formatCurrency, getMonthName, getInitials, getToday, addDays } from '../lib/utils';
 import { Input, Select, Card, Button } from '../ui';
 
 
@@ -50,7 +50,7 @@ function MonthNavigator({ year, month, onChange }) {
 
 // ── Daily Report Tab ──────────────────────────────────────────────────────
 function DailyReport() {
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(getToday());
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['reports', 'daily', selectedDate],
@@ -59,9 +59,7 @@ function DailyReport() {
   });
 
   const navigateDate = (days) => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    setSelectedDate(d.toISOString().split('T')[0]);
+    setSelectedDate(addDays(selectedDate, days));
   };
 
   const summary = data?.summary || {};
@@ -106,7 +104,7 @@ function DailyReport() {
           <ChevronRight className="w-5 h-5" />
         </button>
         <Button
-          onClick={() => setSelectedDate(new Date().toISOString().split('T')[0])}
+          onClick={() => setSelectedDate(getToday())}
           variant="ghost" className="text-xs text-indigo-600"
         >Today</Button>
         <Button variant="ghost" onClick={() => refetch()} className="p-2">

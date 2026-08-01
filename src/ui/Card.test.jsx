@@ -15,12 +15,12 @@ describe('Card', () => {
 
   it('applies hover class when hover prop is true', () => {
     const { container } = render(<Card hover><span /></Card>);
-    expect(container.firstChild.className).toContain('hover:shadow-md');
+    expect(container.firstChild.className).toContain('card-hover');
   });
 
   it('does not apply hover class when hover is false', () => {
     const { container } = render(<Card><span /></Card>);
-    expect(container.firstChild.className).not.toContain('hover:shadow-md');
+    expect(container.firstChild.className).not.toContain('card-hover');
   });
 });
 
@@ -47,7 +47,7 @@ describe('CardFooter', () => {
 
 describe('StatCard', () => {
   it('renders title and value', () => {
-    render(<StatCard title="Revenue" value="₹10,000" />);
+    render(<StatCard title="Revenue" value="₹10,000" animate={false} />);
     expect(screen.getByText('Revenue')).toBeInTheDocument();
     expect(screen.getByText('₹10,000')).toBeInTheDocument();
   });
@@ -64,15 +64,17 @@ describe('StatCard', () => {
   });
 
   it('renders trend indicator', () => {
-    render(<StatCard title="Growth" value="12%" trend={10} trendValue={10} />);
-    expect(screen.getByText(/↑/)).toBeInTheDocument();
+    const { container } = render(<StatCard title="Growth" value="12%" trend={10} trendValue={10} animate={false} />);
     expect(screen.getByText(/10%/)).toBeInTheDocument();
     expect(screen.getByText('vs last month')).toBeInTheDocument();
+    // Trend is rendered as an SVG arrow (not a text glyph)
+    expect(container.querySelector('svg')).toBeInTheDocument();
   });
 
   it('renders negative trend indicator', () => {
-    render(<StatCard title="Loss" value="-5%" trend={-8} trendValue={8} />);
-    expect(screen.getByText(/↓/)).toBeInTheDocument();
+    const { container } = render(<StatCard title="Loss" value="-5%" trend={-8} trendValue={8} animate={false} />);
+    expect(screen.getByText(/8%/)).toBeInTheDocument();
+    expect(container.querySelector('svg')).toBeInTheDocument();
   });
 
   it('renders with color variant', () => {

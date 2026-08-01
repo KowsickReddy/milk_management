@@ -3,6 +3,7 @@ import { Card, Button, Input } from '../../ui';
 import { Milk, Receipt, AlertCircle, Calendar, TrendingUp } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import api from '../../services/api';
+import { getToday } from '../../lib/utils';
 
 export default function PortalDashboard({ user, onNavigate }) {
   const [data, setData] = useState(null);
@@ -42,7 +43,7 @@ export default function PortalDashboard({ user, onNavigate }) {
     try {
       await api.portal.updateQuantity({
         customer_id: user.id,
-        date: new Date().toISOString().split('T')[0],
+        date: getToday(),
         quantity: parseFloat(newQuantity),
         session: user.shift
       });

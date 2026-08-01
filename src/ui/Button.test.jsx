@@ -11,7 +11,7 @@ describe('Button', () => {
   it('uses primary variant by default', () => {
     render(<Button>Primary</Button>);
     const btn = screen.getByText('Primary');
-    expect(btn.className).toContain('bg-indigo-600');
+    expect(btn.className).toContain('bg-brand');
   });
 
   it('applies variant classes', () => {

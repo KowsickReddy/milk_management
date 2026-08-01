@@ -15,7 +15,7 @@ import {
   Select,
 } from '../ui';
 import { toast } from 'react-hot-toast';
-import { getInitials, formatCurrency, cn, getMonthName } from '../lib/utils';
+import { getInitials, formatCurrency, cn, getMonthName, getToday } from '../lib/utils';
 
 // ── Validation schema ─────────────────────────────────────────────────────
 const schema = yup.object().shape({
@@ -819,7 +819,7 @@ export default function Customers() {
   });
 
   const onLeaveCustomerIds = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getToday();
     const ids = new Set();
     allLeaves.forEach(l => {
       if (l.start_date <= today && (!l.end_date || l.end_date >= today)) {

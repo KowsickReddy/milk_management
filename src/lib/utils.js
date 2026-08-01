@@ -38,13 +38,22 @@ export function formatTime(date) {
 // Format a Date as a LOCAL-time date string (YYYY-MM-DD).
 // Never use toISOString() for this — it returns UTC, which for India
 // (UTC+5:30) shows YESTERDAY's date between local midnight and 5:30 AM.
-function toLocalDateString(d) {
+export function toLocalDateString(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 // Get today's date string in local time
 export function getToday() {
   return toLocalDateString(new Date());
+}
+
+// Add days to a YYYY-MM-DD date string using LOCAL time arithmetic.
+// Avoids the UTC off-by-one that `new Date(str)` + toISOString produces.
+export function addDays(dateStr, days) {
+  if (!dateStr) return getToday();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d + days);
+  return toLocalDateString(dt);
 }
 
 // Get month name

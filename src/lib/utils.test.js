@@ -85,9 +85,12 @@ describe('formatTime', () => {
 
 // ── getToday ─────────────────────────────────────────────────────────────
 describe('getToday', () => {
-  it('returns today as YYYY-MM-DD string', () => {
-    const today = new Date().toISOString().split('T')[0];
-    expect(getToday()).toBe(today);
+  it('returns today as YYYY-MM-DD string in LOCAL time', () => {
+    // Use the same local-time components as toLocalDateString (NOT toISOString,
+    // which returns UTC and shows yesterday in India/UTC+5:30 before 5:30am).
+    const now = new Date();
+    const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    expect(getToday()).toBe(expected);
   });
 });
 

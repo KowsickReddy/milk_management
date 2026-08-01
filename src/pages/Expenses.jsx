@@ -6,12 +6,12 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { toast } from 'react-hot-toast';
-import { cn, formatCurrency } from '../lib/utils';
+import { cn, formatCurrency, getToday } from '../lib/utils';
 import { ModalContent, ModalHeader, ModalBody, ModalFooter, ConfirmModal, Button, Input, Select } from '../ui';
 
 const CATEGORIES = ['Feed', 'Veterinary', 'Transport', 'Labour', 'Electricity', 'Packaging', 'Maintenance', 'Other'];
 
-const defaultForm = { category: 'Feed', amount: '', description: '', expense_date: new Date().toISOString().split('T')[0] };
+const defaultForm = { category: 'Feed', amount: '', description: '', expense_date: getToday() };
 
 function ExpenseFormModal({ isOpen, onClose, editingExpense }) {
   const queryClient = useQueryClient();
@@ -24,7 +24,7 @@ function ExpenseFormModal({ isOpen, onClose, editingExpense }) {
           category: editingExpense.category || 'Feed',
           amount: String(editingExpense.amount || ''),
           description: editingExpense.description || '',
-          expense_date: editingExpense.expense_date ? editingExpense.expense_date.split('T')[0] : new Date().toISOString().split('T')[0],
+          expense_date: editingExpense.expense_date ? editingExpense.expense_date.split('T')[0] : getToday(),
         });
       } else {
         setForm(defaultForm);
