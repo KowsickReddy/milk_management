@@ -1,4 +1,4 @@
-const CACHE_NAME = 'dairy-ms-v2';
+const CACHE_NAME = 'dairy-ms-v3';
 const urlsToCache = [
   '/',
   '/index.html',

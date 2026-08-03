@@ -3,6 +3,22 @@ import { toast } from 'react-hot-toast';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
+// ── Toast flood guard ─────────────────────────────────────────────────────
+// Render's free tier sleeps after inactivity — when it cold-starts, several
+// parallel page queries can fail at once and each would fire a toast, making
+// the app feel like it "crashed". Dedupe identical messages within a window.
+let lastToastMsg = '';
+let lastToastAt = 0;
+const TOAST_DEDUPE_MS = 4000;
+
+function notifyError(message) {
+  const now = Date.now();
+  if (message === lastToastMsg && now - lastToastAt < TOAST_DEDUPE_MS) return;
+  lastToastMsg = message;
+  lastToastAt = now;
+  toast.error(message);
+}
+
 // ── Token Expiry Guard ─────────────────────────────────────────────────────
 // Prevents a flood of toasts when multiple API calls fail due to same expired token
 let tokenExpiredHandled = false;
@@ -48,16 +64,26 @@ export async function apiCall(endpoint, options = {}) {
     config.body = JSON.stringify(config.body);
   }
 
+  // AbortController timeout — prevents requests hanging forever when the
+  // backend is cold-starting or unreachable. 45s tolerates Render's free-tier
+  // wake-up (which can take ~30-60s) while still failing fast for real outages.
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutMs = 45000;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  if (controller) config.signal = controller.signal;
+
   let response;
   try {
     response = await fetch(url, config);
   } catch (e) {
-    // Network error (CORS, DNS, connection refused, etc.)
+    // Network error (CORS, DNS, connection refused, timeout, etc.)
+    if (controller) clearTimeout(timeoutId);
     if (!suppressToast) {
-      toast.error('Network error — can\'t reach the server. Check your connection.');
+      notifyError('Network error — can\'t reach the server. Check your connection.');
     }
     throw new Error('Network error — server unreachable');
   }
+  if (controller) clearTimeout(timeoutId);
 
   let data;
   try {
@@ -85,9 +111,10 @@ export async function apiCall(endpoint, options = {}) {
   }
 
   if (!response.ok) {
-    // Only show toast if the caller hasn't opted out
+    // Only show toast if the caller hasn't opted out — deduped to avoid a
+    // flood of identical errors when several queries fail together.
     if (!suppressToast) {
-      toast.error(data?.error || `Server Error: ${response.status}`);
+      notifyError(data?.error || `Server Error: ${response.status}`);
     }
     throw new Error(data?.error || `API Error: ${response.status}`);
   }
