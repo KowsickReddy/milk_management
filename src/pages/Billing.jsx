@@ -485,12 +485,12 @@ export default function Billing() {
     year:  new Date().getFullYear(),
   });
 
-  const { data: bills = [], isLoading, isError: billsIsError, error: _billsError, refetch, isFetching } = useQuery({
+  const { data: bills = [], isLoading, isError: billsIsError, refetch, isFetching } = useQuery({
     queryKey: ['bills'],
     queryFn:  () => api.bills.getAll(),
   });
 
-  const { data: customers = [], isError: custIsError, error: _custError, refetch: refetchCustomers } = useQuery({
+  const { data: customers = [], isError: custIsError, refetch: refetchCustomers } = useQuery({
     queryKey: ['customers'],
     queryFn:  () => api.customers.getAll(),
   });

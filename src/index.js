@@ -9,6 +9,12 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 1000 * 60, // 1 minute
       refetchOnWindowFocus: false, // Don't refetch when switching tabs
+      // Render's free tier sleeps after ~15 min of inactivity. On the first
+      // load after idle the backend takes 30–60s to wake up, so page queries
+      // (e.g. billing, dashboard) can fail once. Retry with a short backoff so
+      // the page auto-recovers instead of showing an error card.
+      retry: 2,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 10000),
     },
   },
 });
